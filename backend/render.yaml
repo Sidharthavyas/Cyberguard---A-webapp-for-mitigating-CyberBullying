@@ -1,0 +1,52 @@
+services:
+  # Main API Web Service
+  - type: web
+    name: cyberbullying-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: TWITTER_CLIENT_ID
+        sync: false
+      - key: TWITTER_CLIENT_SECRET
+        sync: false
+      - key: TWITTER_BEARER_TOKEN
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DELETE_THRESHOLD
+        value: 4
+      - key: FLAG_THRESHOLD
+        value: 3
+
+  # Background Worker for Polling
+  - type: worker
+    name: twitter-poller
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python poller.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: TWITTER_CLIENT_ID
+        sync: false
+      - key: TWITTER_CLIENT_SECRET
+        sync: false
+      - key: TWITTER_BEARER_TOKEN
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: POLL_INTERVAL
+        value: 25
+      - key: DELETE_THRESHOLD
+        value: 4
+      - key: FLAG_THRESHOLD
+        value: 3

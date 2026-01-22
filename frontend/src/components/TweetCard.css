@@ -1,0 +1,236 @@
+/**
+ * Professional Tweet Card Styles
+ */
+
+.tweet-card {
+    background: white;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+    scroll-margin-top: 100px;
+}
+
+.tweet-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    transition: all 0.3s ease;
+}
+
+.tweet-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--border-dark);
+    transform: translateY(-4px);
+}
+
+/* Label-specific borders (Binary: 0=safe, 1=bullying) */
+.tweet-card.label-0::before {
+    background: linear-gradient(180deg, var(--success) 0%, var(--success-hover) 100%);
+}
+
+.tweet-card.label-0 {
+    background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+}
+
+.tweet-card.label-0:hover {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+}
+
+.tweet-card.label-1::before {
+    background: linear-gradient(180deg, var(--danger) 0%, #7f1d1d 100%);
+}
+
+.tweet-card.label-1 {
+    background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.tweet-card.label-1:hover {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+/* Header */
+.tweet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.tweet-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.tweet-id {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+    background: var(--bg-gray-100);
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+}
+
+.tweet-language {
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: var(--bg-gray-100);
+    padding: 0.25rem 0.625rem;
+    border-radius: var(--radius-sm);
+    letter-spacing: 0.75px;
+    border: 1px solid var(--border);
+}
+
+/* Level Badge */
+.level-badge {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 0.375rem 0.875rem;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.75px;
+    border: 1.5px solid;
+    transition: all 0.2s ease;
+}
+
+.level-badge.label-0 {
+    background: linear-gradient(135deg, var(--success-light) 0%, #dcfce7 100%);
+    color: var(--success-dark);
+    border-color: var(--success);
+}
+
+.level-badge.label-1 {
+    background: linear-gradient(135deg, var(--danger-light) 0%, #fee2e2 100%);
+    color: var(--danger-dark);
+    border-color: var(--danger);
+}
+
+/* Divider */
+.divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, var(--border) 50%, transparent 100%);
+    margin: 0.5rem 0;
+}
+
+/* Content */
+.tweet-content {
+    flex: 1;
+}
+
+.tweet-text {
+    font-size: 0.9375rem;
+    line-height: 1.65;
+    color: var(--text-primary);
+    margin: 0;
+    word-break: break-word;
+    font-weight: 400;
+}
+
+/* Footer */
+.tweet-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.tweet-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-light);
+}
+
+.stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.stat-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.75px;
+}
+
+.stat-value {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.action-value {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Deleted Badge */
+.deleted-badge {
+    background: linear-gradient(135deg, var(--danger) 0%, var(--danger-hover) 100%);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    align-self: flex-start;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--danger-dark);
+}
+
+/* Time */
+.tweet-time {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.tweet-time::before {
+    content: '🕒';
+    font-size: 0.75rem;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .tweet-card {
+        padding: 1rem;
+    }
+
+    .tweet-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .tweet-text {
+        font-size: 0.875rem;
+    }
+
+    .tweet-stats {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+}
