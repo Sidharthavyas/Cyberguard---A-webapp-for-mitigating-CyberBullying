@@ -74,7 +74,10 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:5173", "https://*.vercel.app"],
+    # NOTE: Starlette does not support wildcard strings like "https://*.vercel.app" in allow_origins.
+    # Use allow_origin_regex for Vercel preview/prod domains.
+    allow_origins=[FRONTEND_URL, "http://localhost:5173"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

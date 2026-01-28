@@ -31,7 +31,7 @@ const LoginPage: React.FC = () => {
                 </motion.div>
 
                 <h1 className="login-title gradient-text">
-                    Cyberbullying Mitigation System
+                    CyberGuard
                 </h1>
 
                 <p className="login-subtitle">
@@ -46,7 +46,7 @@ const LoginPage: React.FC = () => {
                         transition={{ delay: 0.2 }}
                     >
                         <span className="feature-icon">🤖</span>
-                        <span>AI-Powered Detection</span>
+                        <span>AI-Powered Detection With Transformers </span>
                     </motion.div>
 
                     <motion.div
@@ -65,7 +65,7 @@ const LoginPage: React.FC = () => {
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.4 }}
                     >
-                        <span className="feature-icon">⚡</span>
+                        <span className="feature-icon"></span>
                         <span>Real-time Moderation</span>
                     </motion.div>
                 </div>
@@ -90,10 +90,10 @@ const LoginPage: React.FC = () => {
 
                 <div className="login-footer">
                     <p className="footer-text">
-                        🌟 100% Free Tier • No Database • CPU-Only ML
+                        
                     </p>
                     <p className="footer-note">
-                        Powered by MuRIL + Toxic-BERT ensemble
+                        
                     </p>
                 </div>
             </motion.div>

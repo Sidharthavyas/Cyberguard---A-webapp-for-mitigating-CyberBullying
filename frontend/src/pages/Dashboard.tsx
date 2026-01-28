@@ -41,7 +41,7 @@ const Dashboard: React.FC = () => {
                 <div className="header-content container">
                     <div className="header-left">
                         <h1 className="dashboard-title">
-                            Content Moderation Dashboard
+                            CyberGuard
                         </h1>
                         <div className="connection-status">
                             <span className={`status-dot status-${isConnected ? 'success' : 'warning'}`}></span>
