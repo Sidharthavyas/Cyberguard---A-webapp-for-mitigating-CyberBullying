@@ -1,6 +1,7 @@
 """
 ML inference pipeline for multilingual toxicity detection.
 Uses ensemble of two models running locally on CPU (free tier).
+Enhanced with intelligent ensemble logic and Gemini tiebreaker.
 """
 
 import torch
@@ -88,7 +89,7 @@ class GeminiModerator:
 
 
 class ToxicityDetector:
-    """Ensemble toxicity detection using two local models."""
+    """Ensemble toxicity detection using two local models with enhanced logic."""
     
     def __init__(self):
         self.device = "cpu"  # FREE TIER: CPU-only inference
@@ -230,10 +231,133 @@ class ToxicityDetector:
             logger.error(f"Secondary model inference error: {e}")
             return 0, 0.0, 0.0
     
+    def _ensemble_decision(
+        self, 
+        primary_label: int, primary_conf: float, primary_bully_prob: float,
+        secondary_label: int, secondary_conf: float, secondary_bully_prob: float,
+        models_agree: bool, confidence_gap: float
+    ) -> Tuple[int, float, float, str]:
+        """
+        Enhanced ensemble decision logic using weighted voting.
+        
+        Strategy:
+        1. If both models agree with high confidence -> trust them
+        2. If models disagree -> use weighted voting based on confidence
+        3. If one model is very confident -> trust it more
+        
+        No language-specific hardcoding - works for all 40k+ multilingual dataset.
+        
+        Returns:
+            Tuple of (final_label, final_confidence, final_bully_prob, source)
+        """
+        # Case 1: Both models agree
+        if models_agree:
+            # Use the higher confidence
+            if primary_conf >= secondary_conf:
+                return primary_label, primary_conf, primary_bully_prob, "local_ensemble"
+            else:
+                return secondary_label, secondary_conf, secondary_bully_prob, "local_ensemble"
+        
+        # Case 2: Models disagree - Use weighted voting
+        # Weight by confidence and bullying probability
+        primary_weight = primary_conf * (1 + primary_bully_prob)
+        secondary_weight = secondary_conf * (1 + secondary_bully_prob)
+        
+        # If one model is significantly more confident, trust it
+        confidence_ratio = max(primary_conf, secondary_conf) / (min(primary_conf, secondary_conf) + 0.01)
+        
+        if confidence_ratio > 1.5:  # One model is 50% more confident
+            if primary_conf > secondary_conf:
+                return primary_label, primary_conf, primary_bully_prob, "local_ensemble_weighted"
+            else:
+                return secondary_label, secondary_conf, secondary_bully_prob, "local_ensemble_weighted"
+        
+        # Otherwise, use weighted average of bullying probabilities
+        total_weight = primary_weight + secondary_weight
+        weighted_bully_prob = (
+            (primary_bully_prob * primary_weight + secondary_bully_prob * secondary_weight) 
+            / total_weight
+        )
+        
+        # Apply threshold to weighted probability
+        threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
+        final_label = 1 if weighted_bully_prob >= threshold else 0
+        
+        # Confidence is the average of both confidences
+        final_confidence = (primary_conf + secondary_conf) / 2
+        
+        return final_label, final_confidence, weighted_bully_prob, "local_ensemble_weighted"
+    
+    def _should_trigger_gemini(
+        self,
+        final_confidence: float,
+        models_agree: bool,
+        confidence_gap: float,
+        primary_bully_prob: float,
+        secondary_bully_prob: float
+    ) -> bool:
+        """
+        Determine if Gemini fallback should be triggered.
+        
+        Triggers Gemini when:
+        1. Models disagree on classification
+        2. Low confidence from ensemble (<0.7)
+        3. High confidence gap between models (>0.3)
+        4. Borderline case (probabilities near threshold)
+        
+        Language-agnostic logic - no hardcoded rules.
+        
+        Args:
+            final_confidence: Final ensemble confidence
+            models_agree: Whether models agree on label
+            confidence_gap: Absolute difference in bullying probabilities
+            primary_bully_prob: Primary model bullying probability
+            secondary_bully_prob: Secondary model bullying probability
+            
+        Returns:
+            True if Gemini should be triggered, False otherwise
+        """
+        # Get configurable thresholds
+        min_confidence = float(os.getenv("GEMINI_MIN_CONFIDENCE", "0.7"))
+        max_confidence_gap = float(os.getenv("GEMINI_MAX_GAP", "0.3"))
+        threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
+        borderline_margin = float(os.getenv("GEMINI_BORDERLINE_MARGIN", "0.15"))
+        
+        # Trigger conditions
+        low_confidence = final_confidence < min_confidence
+        high_gap = confidence_gap > max_confidence_gap
+        disagreement = not models_agree
+        
+        # Check if either probability is near the threshold (borderline case)
+        is_borderline = (
+            abs(primary_bully_prob - threshold) < borderline_margin or
+            abs(secondary_bully_prob - threshold) < borderline_margin
+        )
+        
+        # Trigger if any condition is met
+        should_trigger = disagreement or low_confidence or high_gap or is_borderline
+        
+        if should_trigger:
+            logger.debug(
+                f"Gemini trigger analysis - "
+                f"Disagreement: {disagreement}, "
+                f"Low confidence: {low_confidence}, "
+                f"High gap: {high_gap}, "
+                f"Borderline: {is_borderline}"
+            )
+        
+        return should_trigger
+    
     def analyze(self, text: str) -> Dict:
         """
-        Analyze text for toxicity using ensemble ML models and Gemini fallback.
+        Analyze text for toxicity using enhanced ensemble ML models and Gemini fallback.
         Uses binary classification: 0=safe, 1=bullying
+        
+        Enhanced ensemble logic:
+        - Weighted voting based on model confidence
+        - Agreement analysis between models
+        - Smart Gemini fallback for edge cases
+        - No hardcoded language-specific rules (works for all 40+ languages)
         
         Args:
             text: Input text to analyze
@@ -248,26 +372,30 @@ class ToxicityDetector:
         primary_label, primary_conf, primary_bully_prob = self._primary_inference(text)
         secondary_label, secondary_conf, secondary_bully_prob = self._secondary_inference(text)
         
-        # Ensemble: Take maximum label (if either says bullying, flag as bullying)
-        final_label = max(primary_label, secondary_label)
+        # Calculate model agreement
+        models_agree = (primary_label == secondary_label)
+        confidence_gap = abs(primary_bully_prob - secondary_bully_prob)
         
-        # Use confidence from the model that gave higher bullying probability
-        if primary_bully_prob >= secondary_bully_prob:
-            final_confidence = primary_conf
-            final_bully_prob = primary_bully_prob
-        else:
-            final_confidence = secondary_conf
-            final_bully_prob = secondary_bully_prob
-            
-        source = "local_ensemble"
+        # Enhanced ensemble decision logic
+        final_label, final_confidence, final_bully_prob, source = self._ensemble_decision(
+            primary_label, primary_conf, primary_bully_prob,
+            secondary_label, secondary_conf, secondary_bully_prob,
+            models_agree, confidence_gap
+        )
         
-        # GEMINI FALLBACK LOGIC
-        # If low confidence OR if models disagree on classification
-        is_uncertain = final_confidence < 0.7
-        disagreement = primary_label != secondary_label
+        # GEMINI FALLBACK LOGIC - Only for uncertain or disagreement cases
+        should_use_gemini = self._should_trigger_gemini(
+            final_confidence, models_agree, confidence_gap, 
+            primary_bully_prob, secondary_bully_prob
+        )
         
-        if (is_uncertain or disagreement) and self.gemini.initialized:
-            logger.info(f"Triggering Gemini fallback (Confidence: {final_confidence:.2f}, Disagreement: {disagreement})")
+        if should_use_gemini and self.gemini.initialized:
+            logger.info(
+                f"Triggering Gemini fallback - "
+                f"Confidence: {final_confidence:.2f}, "
+                f"Agreement: {models_agree}, "
+                f"Gap: {confidence_gap:.2f}"
+            )
             gemini_result = self.gemini.analyze(text)
             
             if gemini_result:
@@ -276,19 +404,28 @@ class ToxicityDetector:
                 gemini_conf = gemini_result['confidence']
                 gemini_label = 1 if gemini_level >= 3 else 0
                 
-                # If Gemini is confident, use its result
-                if gemini_conf > 0.8:
-                    final_label = gemini_label
-                    final_confidence = gemini_conf
-                    final_bully_prob = gemini_conf if gemini_label == 1 else (1 - gemini_conf)
-                    source = "gemini_fallback"
-                    logger.info(f"Gemini override applied: Label {gemini_label} ({gemini_conf:.2f})")
+                # Use Gemini as tiebreaker or confidence booster
+                if gemini_conf > 0.75:  # Only trust high-confidence Gemini results
+                    # If models disagree, use Gemini as tiebreaker
+                    if not models_agree:
+                        final_label = gemini_label
+                        final_confidence = gemini_conf
+                        final_bully_prob = gemini_conf if gemini_label == 1 else (1 - gemini_conf)
+                        source = "gemini_tiebreaker"
+                        logger.info(f"Gemini tiebreaker: Label {gemini_label} ({gemini_conf:.2f})")
+                    # If models agree but low confidence, boost confidence
+                    elif final_confidence < 0.7 and gemini_label == final_label:
+                        # Average the confidences for a more reliable score
+                        final_confidence = (final_confidence + gemini_conf) / 2
+                        source = "gemini_boosted"
+                        logger.info(f"Gemini confidence boost: {final_confidence:.2f}")
         
         logger.info(
             f"Analysis complete ({source}) - Language: {language}, "
             f"Primary: L{primary_label}({primary_conf:.2f}), "
             f"Secondary: L{secondary_label}({secondary_conf:.2f}), "
-            f"Final: L{final_label}({final_confidence:.2f})"
+            f"Final: L{final_label}({final_confidence:.2f}), "
+            f"Agreement: {models_agree}"
         )
         
         return {
@@ -301,6 +438,8 @@ class ToxicityDetector:
             "primary_confidence": primary_conf,
             "secondary_label": secondary_label,
             "secondary_confidence": secondary_conf,
+            "models_agree": models_agree,
+            "confidence_gap": confidence_gap,
             "source": source
         }
 

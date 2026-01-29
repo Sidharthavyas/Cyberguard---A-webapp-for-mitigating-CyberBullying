@@ -99,6 +99,8 @@ class ModerationEngine:
             "deleted": deleted,
             "primary_label": analysis["primary_label"],
             "secondary_label": analysis["secondary_label"],
+            "models_agree": analysis["models_agree"],
+            "confidence_gap": analysis["confidence_gap"],
             "source": analysis["source"]
         }
         
