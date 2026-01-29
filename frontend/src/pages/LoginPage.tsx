@@ -12,8 +12,9 @@ const LoginPage: React.FC = () => {
     const [selectedPlatform, setSelectedPlatform] = useState<Platform>('twitter');
 
     const handleLogin = () => {
-        const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-
+        // Use VITE_API_URL for production (Hugging Face) or localhost for dev
+        const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        
         // Redirect to platform-specific OAuth endpoint
         const authUrls: Record<Platform, string> = {
             twitter: `${BACKEND_URL}/auth/twitter/login`,
