@@ -1,35 +1,52 @@
 /**
- * Professional Tweet Card with Clean White UI
+ * Professional Tweet/Feed Card with Multi-Platform Support
  */
 
 import { motion } from 'framer-motion';
 import './TweetCard.css';
 
-interface TweetCardProps {
-    tweetId: string;
+interface ModerationEvent {
+    tweet_id: string;
     text: string;
     language: string;
-    label: number;  // 0=safe, 1=bullying
-    labelName: string;  // "SAFE" or "BULLYING"
+    label: number;
+    label_name: string;
     confidence: number;
-    bullyingProbability: number;
+    bullying_probability: number;
     deleted: boolean;
     action: string;
-    timestamp?: string;
+    timestamp: string;
+    platform?: string;
+    id?: string;
+    author?: string;
+    channel?: string;
 }
 
-const TweetCard: React.FC<TweetCardProps> = ({
-    tweetId,
-    text,
-    language,
-    label,
-    labelName,
-    confidence,
-    bullyingProbability,
-    deleted,
-    action,
-    timestamp
-}) => {
+interface TweetCardProps {
+    event: ModerationEvent;
+    index: number;
+}
+
+const TweetCard: React.FC<TweetCardProps> = ({ event, index }) => {
+    // Destructure event properties
+    const {
+        tweet_id,
+        text,
+        language,
+        label,
+        label_name: labelName,
+        confidence,
+        bullying_probability: bullyingProbability,
+        deleted,
+        action,
+        timestamp,
+        platform = 'twitter',
+        id,
+        author,
+        channel
+    } = event;
+
+    const tweetId = id || tweet_id;
 
 
     const getActionLabel = (action: string) => {
@@ -45,25 +62,42 @@ const TweetCard: React.FC<TweetCardProps> = ({
         }
     };
 
+    const getPlatformEmoji = (platform: string) => {
+        switch (platform.toLowerCase()) {
+            case 'discord': return '💬';
+            case 'reddit': return '🔴';
+            case 'twitter':
+            default: return '𝕏';
+        }
+    };
+
     return (
         <motion.div
             className={`tweet-card label-${label}`}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{
-                type: 'spring',
-                stiffness: 300,
-                damping: 25
-            }}
+            transition={{ duration: 0.3, delay: index * 0.05 }}
         >
-            <div className="tweet-header">
-                <div className="tweet-meta">
-                    <span className="tweet-id">#{tweetId.slice(-8)}</span>
-                    <span className="tweet-language">{language.toUpperCase()}</span>
+            {/* Card Header */}
+            <div className="card-header">
+                <div className="header-left">
+                    <span className="platform-badge" title={platform}>
+                        {getPlatformEmoji(platform)}
+                    </span>
+                    <span className="tweet-id">
+                        {author || channel || `ID: ${tweetId.slice(0, 10)}...`}
+                    </span>
                 </div>
-                <div className={`level-badge label-${label}`}>
-                    {labelName}
+                <div className="header-right">
+                    {timestamp && (
+                        <span className="timestamp">
+                            {new Date(timestamp).toLocaleTimeString()}
+                        </span>
+                    )}
+                    <div className={`level-badge label-${label}`}>
+                        {labelName}
+                    </div>
                 </div>
             </div>
 
@@ -99,11 +133,6 @@ const TweetCard: React.FC<TweetCardProps> = ({
                     >
                         Deleted
                     </motion.div>
-                )}
-                {timestamp && (
-                    <div className="tweet-time">
-                        {new Date(timestamp).toLocaleTimeString()}
-                    </div>
                 )}
             </div>
         </motion.div>

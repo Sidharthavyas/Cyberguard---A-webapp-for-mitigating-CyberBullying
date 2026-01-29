@@ -94,9 +94,100 @@
 .login-btn {
     width: 100%;
     padding: 0.875rem 1.5rem;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     font-weight: 600;
-    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.login-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow);
+}
+
+/* Platform Selector */
+.platform-selector {
+    margin: 2rem 0;
+}
+
+.selector-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+}
+
+.platform-options {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+}
+
+.platform-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 0.5rem;
+    background: var(--bg-secondary);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.platform-option:hover {
+    border-color: var(--text-secondary);
+    background: var(--bg-primary);
+}
+
+.platform-option.selected {
+    border-color: var(--text-primary);
+    background: var(--bg-primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.platform-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.platform-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.platform-name {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .login-container {
+        padding: 2rem 1.5rem;
+    }
+
+    .platform-options {
+        grid-template-columns: 1fr;
+    }
+
+    .platform-option {
+        flex-direction: row;
+        justify-content: flex-start;
+        padding: 0.875rem 1rem;
+    }
+
+    .platform-name {
+        font-size: 0.875rem;
+    }
 }
 
 @media (max-width: 768px) {

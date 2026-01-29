@@ -13,12 +13,18 @@ interface ModerationEvent {
     label_name: string;  // "SAFE" or "BULLYING"
     confidence: number;
     bullying_probability: number;
-    action: string;
     deleted: boolean;
+    action: string;
+    timestamp: string;
+    models_agree?: boolean;
+    confidence_gap?: number;
+    platform?: string;  // Platform name: twitter, discord, reddit
+    id?: string;  // Generic ID for non-Twitter platforms
+    author?: string;  // Author username
+    channel?: string;  // Discord channel or Reddit subreddit
     primary_label?: number;
     secondary_label?: number;
     source?: string;
-    timestamp?: string;
 }
 
 interface ConnectionEvent {

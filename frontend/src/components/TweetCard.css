@@ -40,6 +40,32 @@
 }
 
 /* Header */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.platform-badge {
+    font-size: 1.125rem;
+    line-height: 1;
+    cursor: default;
+}
+
 .tweet-header {
     display: flex;
     justify-content: space-between;

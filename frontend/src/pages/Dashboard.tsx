@@ -1,5 +1,5 @@
 /**
- * Professional Dashboard with clean UI and theme toggle
+ * Multi-Platform Dashboard with Sidebar, Platform Cards, and Feed Filter
  */
 
 import { useState } from 'react';
@@ -10,6 +10,8 @@ import { authAPI } from '../services/api';
 import TweetCard from '../components/TweetCard';
 import MetricsPanel from '../components/MetricsPanel';
 import ThemeToggle from '../components/ThemeToggle';
+import Sidebar from '../components/Sidebar';
+import PlatformCards from '../components/PlatformCards';
 import './Dashboard.css';
 
 const Dashboard: React.FC = () => {
@@ -18,6 +20,8 @@ const Dashboard: React.FC = () => {
     const username = localStorage.getItem('twitter_username') || 'User';
     const userId = localStorage.getItem('twitter_user_id');
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [platformFilter, setPlatformFilter] = useState<string>('all');
+    const [activeView, setActiveView] = useState<'feed' | 'platforms'>('feed');
 
     const handleLogout = async () => {
         setIsLoggingOut(true);
@@ -38,6 +42,9 @@ const Dashboard: React.FC = () => {
 
     return (
         <div className="dashboard">
+            {/* Sidebar with Hamburger Menu */}
+            <Sidebar currentPage={activeView} />
+
             <header className="dashboard-header">
                 <div className="header-content container">
                     <div className="header-left">
@@ -58,10 +65,12 @@ const Dashboard: React.FC = () => {
                             <div className="user-avatar">
                                 {username.charAt(0).toUpperCase()}
                             </div>
-                            <span className="username">@{username}</span>
+                            <div className="user-details">
+                                <div className="user-name">@{username}</div>
+                            </div>
                         </div>
                         <button
-                            className="btn btn-secondary"
+                            className="btn btn-outline logout-btn"
                             onClick={handleLogout}
                             disabled={isLoggingOut}
                         >
@@ -72,61 +81,93 @@ const Dashboard: React.FC = () => {
             </header>
 
             <main className="dashboard-main container">
+                {/* View Toggle */}
+                <div className="view-toggle">
+                    <button
+                        className={`view-btn ${activeView === 'feed' ? 'active' : ''}`}
+                        onClick={() => setActiveView('feed')}
+                    >
+                        📊 Feed
+                    </button>
+                    <button
+                        className={`view-btn ${activeView === 'platforms' ? 'active' : ''}`}
+                        onClick={() => setActiveView('platforms')}
+                    >
+                        🔗 Platforms
+                    </button>
+                </div>
+
+                {/* Error Banner */}
                 {error && (
                     <div className="error-banner">
-                        <span>⚠</span>
+                        <span>⚠️</span>
                         <span>{error}</span>
                     </div>
                 )}
 
-                <MetricsPanel latestEvent={latestEvent} />
+                {/* Metrics Panel */}
+                <section className="metrics-section">
+                    <MetricsPanel latestEvent={latestEvent} />
+                </section>
 
-                <div className="tweets-section">
-                    <div className="section-header">
-                        <div>
-                            <h2 className="section-title">Live Feed</h2>
-                            <p className="section-subtitle">Real-time content moderation activity</p>
-                        </div>
-                        {events.length > 0 && (
-                            <div className="badge badge-primary">
-                                {events.length} events
-                            </div>
-                        )}
-                    </div>
+                {/* Platform Cards View */}
+                {activeView === 'platforms' && (
+                    <section className="platforms-section">
+                        <PlatformCards />
+                    </section>
+                )}
 
-                    <AnimatePresence mode="popLayout">
-                        {events.length === 0 ? (
-                            <motion.div
-                                className="empty-state"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
+                {/* Moderation Feed */}
+                {activeView === 'feed' && (
+                    <section className="feed-section">
+                        <div className="feed-header">
+                            <h2 className="section-title">Moderation Feed</h2>
+
+                            {/* Platform Filter */}
+                            <select
+                                className="platform-filter"
+                                value={platformFilter}
+                                onChange={(e) => setPlatformFilter(e.target.value)}
                             >
-                                <div className="empty-icon">—</div>
-                                <h3>Waiting for activity</h3>
-                                <p>Tweets will appear here as they are analyzed in real-time</p>
-                            </motion.div>
-                        ) : (
-                            <div className="tweets-grid">
-                                {events.map((event, index) => (
-                                    <TweetCard
-                                        key={`${event.tweet_id}-${index}`}
-                                        tweetId={event.tweet_id}
-                                        text={event.text}
-                                        language={event.language}
-                                        label={event.label}
-                                        labelName={event.label_name}
-                                        confidence={event.confidence}
-                                        bullyingProbability={event.bullying_probability}
-                                        deleted={event.deleted}
-                                        action={event.action}
-                                        timestamp={event.timestamp}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </AnimatePresence>
-                </div>
+                                <option value="all">🌐 All Platforms</option>
+                                <option value="twitter">𝕏 Twitter</option>
+                                <option value="discord">💬 Discord</option>
+                                <option value="reddit">🔴 Reddit</option>
+                            </select>
+                        </div>
+
+                        <AnimatePresence mode="popLayout">
+                            {events.filter(e => platformFilter === 'all' || e.platform === platformFilter || (platformFilter === 'twitter' && !e.platform)).length === 0 ? (
+                                <motion.div
+                                    className="empty-state"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                >
+                                    <div className="empty-icon">—</div>
+                                    <h3>Waiting for activity</h3>
+                                    <p>
+                                        {platformFilter === 'all'
+                                            ? 'Content will appear here as it is analyzed in real-time'
+                                            : `No ${platformFilter} activity yet`}
+                                    </p>
+                                </motion.div>
+                            ) : (
+                                <div className="feed-grid">
+                                    {events
+                                        .filter(e => platformFilter === 'all' || e.platform === platformFilter || (platformFilter === 'twitter' && !e.platform))
+                                        .map((event, index) => (
+                                            <TweetCard
+                                                key={event.tweet_id || event.id || index}
+                                                event={event}
+                                                index={index}
+                                            />
+                                        ))}
+                                </div>
+                            )}
+                        </AnimatePresence>
+                    </section>
+                )}
             </main>
         </div>
     );
