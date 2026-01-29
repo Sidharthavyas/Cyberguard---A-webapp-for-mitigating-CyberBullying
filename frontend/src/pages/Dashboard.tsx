@@ -1,5 +1,5 @@
 /**
- * Professional Dashboard with clean white UI
+ * Professional Dashboard with clean UI and theme toggle
  */
 
 import { useState } from 'react';
@@ -9,6 +9,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { authAPI } from '../services/api';
 import TweetCard from '../components/TweetCard';
 import MetricsPanel from '../components/MetricsPanel';
+import ThemeToggle from '../components/ThemeToggle';
 import './Dashboard.css';
 
 const Dashboard: React.FC = () => {
@@ -46,12 +47,13 @@ const Dashboard: React.FC = () => {
                         <div className="connection-status">
                             <span className={`status-dot status-${isConnected ? 'success' : 'warning'}`}></span>
                             <span className="status-text">
-                                {isConnected ? 'Live Monitoring' : 'Connecting...'}
+                                {isConnected ? 'Live' : 'Connecting...'}
                             </span>
                         </div>
                     </div>
 
                     <div className="header-right">
+                        <ThemeToggle />
                         <div className="user-info">
                             <div className="user-avatar">
                                 {username.charAt(0).toUpperCase()}
@@ -72,7 +74,7 @@ const Dashboard: React.FC = () => {
             <main className="dashboard-main container">
                 {error && (
                     <div className="error-banner">
-                        <span className="error-icon">⚠️</span>
+                        <span>⚠</span>
                         <span>{error}</span>
                     </div>
                 )}
@@ -100,7 +102,7 @@ const Dashboard: React.FC = () => {
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                             >
-                                <div className="empty-icon">📡</div>
+                                <div className="empty-icon">—</div>
                                 <h3>Waiting for activity</h3>
                                 <p>Tweets will appear here as they are analyzed in real-time</p>
                             </motion.div>

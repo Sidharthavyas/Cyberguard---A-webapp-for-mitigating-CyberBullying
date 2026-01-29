@@ -94,7 +94,6 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ latestEvent }) => {
                     transition={{ type: 'spring', stiffness: 300 }}
                 >
                     <div className="metric-header">
-                        <span className="metric-icon">🔍</span>
                         <span className="metric-label">Scanned</span>
                     </div>
                     <div className="metric-value">{stats.total_scanned.toLocaleString()}</div>
@@ -109,7 +108,6 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ latestEvent }) => {
                     transition={{ type: 'spring', stiffness: 300 }}
                 >
                     <div className="metric-header">
-                        <span className="metric-icon">⚠️</span>
                         <span className="metric-label">Flagged</span>
                     </div>
                     <div className="metric-value">{stats.total_flagged.toLocaleString()}</div>
@@ -124,7 +122,6 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ latestEvent }) => {
                     transition={{ type: 'spring', stiffness: 300 }}
                 >
                     <div className="metric-header">
-                        <span className="metric-icon">🗑️</span>
                         <span className="metric-label">Deleted</span>
                     </div>
                     <div className="metric-value">{stats.total_deleted.toLocaleString()}</div>

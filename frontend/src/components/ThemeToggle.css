@@ -1,0 +1,24 @@
+.theme-toggle {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+    background: var(--bg-gray-50);
+    border-color: var(--border-dark);
+}
+
+.theme-toggle:active {
+    transform: scale(0.98);
+}
+
+[data-theme="dark"] .theme-toggle:hover {
+    background: var(--bg-gray-900);
+}

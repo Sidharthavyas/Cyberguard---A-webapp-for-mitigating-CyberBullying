@@ -1,7 +1,7 @@
 
 
 /**
- * Twitter OAuth login page with premium design.
+ * Twitter OAuth login page with minimal design.
  */
 
 import { motion } from 'framer-motion';
@@ -16,21 +16,16 @@ const LoginPage: React.FC = () => {
     return (
         <div className="login-page">
             <motion.div
-                className="login-container glass"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                className="login-container"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
             >
-                <motion.div
-                    className="logo"
-                    initial={{ rotate: -10 }}
-                    animate={{ rotate: 0 }}
-                    transition={{ type: 'spring', stiffness: 100 }}
-                >
-                    🛡️
-                </motion.div>
+                <div className="logo">
+                    CG
+                </div>
 
-                <h1 className="login-title gradient-text">
+                <h1 className="login-title">
                     CyberGuard
                 </h1>
 
@@ -39,46 +34,28 @@ const LoginPage: React.FC = () => {
                 </p>
 
                 <div className="feature-list">
-                    <motion.div
-                        className="feature"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.2 }}
-                    >
-                        <span className="feature-icon">🤖</span>
-                        <span>AI-Powered Detection With Transformers </span>
-                    </motion.div>
+                    <div className="feature">
+                        <span>AI-Powered Detection With Transformers</span>
+                    </div>
 
-                    <motion.div
-                        className="feature"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.3 }}
-                    >
-                        <span className="feature-icon">🌐</span>
+                    <div className="feature">
                         <span>Multilingual Support</span>
-                    </motion.div>
+                    </div>
 
-                    <motion.div
-                        className="feature"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.4 }}
-                    >
-                        <span className="feature-icon"></span>
+                    <div className="feature">
                         <span>Real-time Moderation</span>
-                    </motion.div>
+                    </div>
                 </div>
 
                 <motion.button
                     className="btn btn-primary login-btn"
                     onClick={handleLogin}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                 >
                     <svg
-                        width="24"
-                        height="24"
+                        width="20"
+                        height="20"
                         viewBox="0 0 24 24"
                         fill="currentColor"
                         style={{ marginRight: '0.5rem' }}
@@ -87,22 +64,7 @@ const LoginPage: React.FC = () => {
                     </svg>
                     Login with Twitter
                 </motion.button>
-
-                <div className="login-footer">
-                    <p className="footer-text">
-                        
-                    </p>
-                    <p className="footer-note">
-                        
-                    </p>
-                </div>
             </motion.div>
-
-            <div className="background-decoration">
-                <div className="circle circle-1"></div>
-                <div className="circle circle-2"></div>
-                <div className="circle circle-3"></div>
-            </div>
         </div>
     );
 };

@@ -32,16 +32,16 @@ const TweetCard: React.FC<TweetCardProps> = ({
 }) => {
 
 
-    const getActionIcon = (action: string) => {
+    const getActionLabel = (action: string) => {
         switch (action) {
             case 'delete':
-                return '🗑️';
+                return 'Deleted';
             case 'flag':
-                return '⚠️';
+                return 'Flagged';
             case 'ignore':
-                return '✅';
+                return 'Safe';
             default:
-                return '•';
+                return action;
         }
     };
 
@@ -86,7 +86,7 @@ const TweetCard: React.FC<TweetCardProps> = ({
                     <div className="stat">
                         <span className="stat-label">Action</span>
                         <span className="stat-value action-value">
-                            {getActionIcon(action)} {action.charAt(0).toUpperCase() + action.slice(1)}
+                            {getActionLabel(action)}
                         </span>
                     </div>
                 </div>
