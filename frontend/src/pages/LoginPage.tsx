@@ -34,17 +34,32 @@ const LoginPage: React.FC = () => {
                 </p>
 
                 <div className="feature-list">
-                    <div className="feature">
+                    <motion.div
+                        className="feature"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.1, duration: 0.4 }}
+                    >
                         <span>AI-Powered Detection With Transformers</span>
-                    </div>
+                    </motion.div>
 
-                    <div className="feature">
+                    <motion.div
+                        className="feature"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.2, duration: 0.4 }}
+                    >
                         <span>Multilingual Support</span>
-                    </div>
+                    </motion.div>
 
-                    <div className="feature">
+                    <motion.div
+                        className="feature"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3, duration: 0.4 }}
+                    >
                         <span>Real-time Moderation</span>
-                    </div>
+                    </motion.div>
                 </div>
 
                 <motion.button

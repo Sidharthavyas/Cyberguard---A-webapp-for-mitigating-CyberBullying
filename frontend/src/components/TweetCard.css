@@ -10,13 +10,28 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
+}
+
+.tweet-card::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-dark);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.tweet-card:hover::after {
+    opacity: 1;
 }
 
 .tweet-card:hover {
     box-shadow: var(--shadow-sm);
-    border-color: var(--border-dark);
+    transform: translateY(-2px);
 }
 
 /* Label-specific styling */

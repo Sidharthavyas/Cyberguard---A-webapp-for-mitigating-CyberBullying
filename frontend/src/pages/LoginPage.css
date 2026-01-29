@@ -66,12 +66,29 @@
     color: var(--text-secondary);
     border-left: 2px solid var(--border);
     padding-left: 1rem;
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.feature::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--text-primary);
+    transform: scaleY(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.feature:hover::before {
+    transform: scaleY(1);
 }
 
 .feature:hover {
-    border-left-color: var(--text-primary);
     color: var(--text-primary);
+    padding-left: 1.25rem;
 }
 
 .login-btn {
