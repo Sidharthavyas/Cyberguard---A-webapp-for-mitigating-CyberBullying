@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import routers and modules
@@ -43,22 +43,35 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to load ML models: {e}")
         raise
     
-    # Start background poller
+    # Start background pollers (Twitter + dynamic platforms)
     from poller import poll_mentions
+    from unified_poller import start_platform_pollers
     import asyncio
     
-    poller_task = asyncio.create_task(poll_mentions())
-    logger.info("✓ Background poller started")
+    # Start Twitter poller (existing)
+    twitter_poller_task = asyncio.create_task(poll_mentions())
+    logger.info("✓ Twitter poller started")
+    
+    # Start unified platform pollers (Discord, Reddit, etc.)
+    await start_platform_pollers()
+    logger.info("✓ All platform pollers initialized")
     
     yield
     
     # Cleanup on shutdown
     logger.info("Application shutting down...")
-    poller_task.cancel()
+    
+    # Stop Twitter poller
+    twitter_poller_task.cancel()
     try:
-        await poller_task
+        await twitter_poller_task
     except asyncio.CancelledError:
-        logger.info("✓ Poller stopped")
+        logger.info("✓ Twitter poller stopped")
+    
+    # Stop all platform pollers
+    from unified_poller import shutdown_all_pollers
+    await shutdown_all_pollers()
+    logger.info("✓ All pollers stopped")
 
 
 # Create FastAPI app
@@ -169,6 +182,115 @@ async def reset_metrics():
     """
     metrics.reset()
     return {"message": "Metrics reset successfully"}
+
+
+# ============= PLATFORM MANAGEMENT APIS =============
+
+@app.get("/platforms/connected")
+async def get_connected_platforms():
+    """
+    Get list of currently connected platforms.
+    
+    Returns:
+        List of connected platform names
+    """
+    from platform_manager import get_platform_manager
+    from unified_poller import get_connected_platforms
+    
+    platform_manager = get_platform_manager()
+    active = platform_manager.get_connected_platforms()
+    
+    # Also get stored platforms from Redis
+    stored = get_connected_platforms()
+    
+    return {
+        "active_pollers": active,
+        "configured_platforms": list(stored.keys()),
+        "platforms": {
+            "twitter": {"enabled": True, "status": "active"},
+            "discord": {
+                "enabled": "discord" in active,
+                "status": "active" if "discord" in active else "inactive"
+            },
+            "reddit": {
+                "enabled": "reddit" in active,
+                "status": "active" if "reddit" in active else "inactive"
+            }
+        }
+    }
+
+
+@app.post("/platforms/connect")
+async def connect_platform(request: dict):
+    """
+    Connect a new platform and start its poller.
+    
+    Body:
+        {
+            "platform": "discord" | "reddit",
+            "credentials": {...}
+        }
+    """
+    platform = request.get("platform")
+    credentials = request.get("credentials", {})
+    
+    if not platform:
+        raise HTTPException(status_code=400, detail="Platform name required")
+    
+    from unified_poller import add_platform
+    
+    success = await add_platform(platform, credentials)
+    
+    if success:
+        return {
+            "message": f"{platform} connected successfully",
+            "platform": platform
+        }
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to connect {platform}")
+
+
+@app.delete("/platforms/{platform}")
+async def disconnect_platform(platform: str):
+    """
+    Disconnect a platform and stop its poller.
+    
+    Args:
+        platform: Platform name (discord, reddit)
+    """
+    from unified_poller import remove_platform
+    
+    success = await remove_platform(platform)
+    
+    if success:
+        return {
+            "message": f"{platform} disconnected successfully",
+            "platform": platform
+        }
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to disconnect {platform}")
+
+
+@app.get("/feed")
+async def get_unified_feed(platform: str = "all", limit: int = 100):
+    """
+    Get unified feed from all or specific platforms.
+    
+    Args:
+        platform: "all", "twitter", "discord", or "reddit"
+        limit: Max items to return
+    
+    Returns:
+        Unified feed with platform filtering
+    """
+    # TODO: Implement feed aggregation from multiple platforms
+    # For now, return metrics
+    return {
+        "platform": platform,
+        "limit": limit,
+        "message": "Feed endpoint - to be implemented with actual feed data",
+        "stats": metrics.get_stats()
+    }
 
 
 if __name__ == "__main__":
