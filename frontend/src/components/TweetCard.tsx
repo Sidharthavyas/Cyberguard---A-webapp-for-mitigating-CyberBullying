@@ -32,7 +32,6 @@ const TweetCard: React.FC<TweetCardProps> = ({ event, index }) => {
     const {
         tweet_id,
         text,
-        language,
         label,
         label_name: labelName,
         confidence,
