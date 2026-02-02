@@ -7,7 +7,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
     const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
-    const FRONTEND_URL = process.env.VITE_FRONTEND_URL || 'https://cyberguard-frontend.vercel.app';
+    const FRONTEND_URL = process.env.VITE_FRONTEND_URL || 'https://cyberguard-a-webapp-for-mitigating.vercel.app';
 
     if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
         return res.redirect(`${FRONTEND_URL}?error=discord_not_configured`);
