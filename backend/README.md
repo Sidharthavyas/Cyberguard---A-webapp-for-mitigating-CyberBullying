@@ -4,6 +4,7 @@ emoji: 🛡️
 colorFrom: red
 colorTo: orange
 sdk: docker
+app_file: main.py
 pinned: false
 license: mit
 ---
