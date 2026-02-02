@@ -211,10 +211,6 @@ async def get_connected_platforms():
             "discord": {
                 "enabled": "discord" in active,
                 "status": "active" if "discord" in active else "inactive"
-            },
-            "reddit": {
-                "enabled": "reddit" in active,
-                "status": "active" if "reddit" in active else "inactive"
             }
         }
     }

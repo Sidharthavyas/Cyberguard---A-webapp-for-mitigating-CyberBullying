@@ -18,8 +18,7 @@ interface Platform {
 const PlatformCards: React.FC = () => {
     const [platforms, setPlatforms] = useState<Platform[]>([
         { id: 'twitter', name: 'Twitter', icon: '𝕏', color: '#1DA1F2', enabled: true, status: 'active' },
-        { id: 'discord', name: 'Discord', icon: '💬', color: '#5865F2', enabled: false, status: 'inactive' },
-        { id: 'reddit', name: 'Reddit', icon: '🔴', color: '#FF4500', enabled: false, status: 'inactive' }
+        { id: 'discord', name: 'Discord', icon: '💬', color: '#5865F2', enabled: false, status: 'inactive' }
     ]);
 
     const [showModal, setShowModal] = useState(false);

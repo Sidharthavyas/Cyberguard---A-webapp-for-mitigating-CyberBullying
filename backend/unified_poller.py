@@ -9,7 +9,6 @@ import os
 from typing import Dict, List
 from platform_manager import get_platform_manager
 from discord_poller import DiscordPoller
-from reddit_poller import RedditPoller
 import redis
 import json
 
@@ -86,30 +85,6 @@ async def start_platform_pollers():
         except Exception as e:
             logger.error(f"Failed to start Discord poller: {e}")
     
-    # Start Reddit poller
-    if platforms.get("reddit", {}).get("enabled"):
-        try:
-            reddit_config = platforms["reddit"]
-            credentials = {
-                "client_id": reddit_config.get("client_id"),
-                "client_secret": reddit_config.get("client_secret"),
-                "user_agent": reddit_config.get("user_agent", "CyberGuard/1.0"),
-                "username": reddit_config.get("username"),
-                "password": reddit_config.get("password"),
-                "subreddits": reddit_config.get("subreddits", []),
-                "poll_interval": reddit_config.get("poll_interval", 120)
-            }
-            
-            await platform_manager.connect_platform(
-                "reddit",
-                credentials,
-               RedditPoller
-            )
-            logger.info("✓ Reddit poller started")
-        
-        except Exception as e:
-            logger.error(f"Failed to start Reddit poller: {e}")
-    
     logger.info(f"Unified pollers running for: {platform_manager.get_connected_platforms()}")
 
 
@@ -118,7 +93,7 @@ async def add_platform(platform: str, credentials: Dict) -> bool:
     Add a new platform and start its poller.
     
     Args:
-        platform: Platform name (twitter, discord, reddit)
+        platform: Platform name (twitter, discord)
         credentials: Platform-specific credentials
         
     Returns:
@@ -130,8 +105,6 @@ async def add_platform(platform: str, credentials: Dict) -> bool:
         # Map platform to poller class
         if platform == "discord":
             poller_class = DiscordPoller
-        elif platform == "reddit":
-            poller_class = RedditPoller
         else:
             logger.error(f"Unknown platform: {platform}")
             return False

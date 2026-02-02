@@ -31,10 +31,6 @@ TWITTER_CLIENT_SECRET = os.getenv("TWITTER_CLIENT_SECRET")
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 
-# Reddit OAuth2 setup
-REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
-REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
-
 # URLs
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -306,7 +302,7 @@ async def discord_callback(
                     f"discord_token:{user_id}",
                     30 * 24 * 60 * 60,  # 30 days
                     json.dumps(platform_data)
-           )
+                )
                 
                 logger.info(f"Stored Discord tokens for {username} ({user_id})")
             
@@ -323,131 +319,6 @@ async def discord_callback(
     except Exception as e:
         logger.error(f"Discord callback error: {e}", exc_info=True)
         return RedirectResponse(url=f"{FRONTEND_URL}?error=discord_auth_failed&details={str(e)}")
-
-
-# ============= REDDIT OAuth =============
-
-@router.get("/reddit/login")
-async def reddit_login():
-    """
-    Initiate Reddit OAuth2 flow.
-    Redirects user to Reddit authorization page.
-    """
-    if not REDDIT_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="Reddit OAuth not configured")
-    
-    try:
-        state = secrets.token_urlsafe(32)
-        _store_state(state, "reddit_oauth")
-        
-        # Reddit OAuth URL
-        params = {
-            "client_id": REDDIT_CLIENT_ID,
-            "response_type": "code",
-            "state": state,
-            "redirect_uri": f"{BACKEND_URL}/auth/reddit/callback",
-            "duration": "permanent",
-            "scope": "identity read submit modposts"
-        }
-        
-        authorization_url = f"https://www.reddit.com/api/v1/authorize?{urllib.parse.urlencode(params)}"
-        
-        logger.info(f"Redirecting to Reddit OAuth: {authorization_url}")
-        return RedirectResponse(url=authorization_url)
-    
-    except Exception as e:
-        logger.error(f"Error initiating Reddit OAuth: {e}")
-        raise HTTPException(status_code=500, detail="Failed to initiate Reddit login")
-
-
-@router.get("/reddit/callback")
-async def reddit_callback(
-    code: Optional[str] = Query(None),
-    state: Optional[str] = Query(None),
-    error: Optional[str] = Query(None)
-):
-    """
-    Handle OAuth2 callback from Reddit.
-    """
-    if error:
-        logger.error(f"Reddit OAuth error: {error}")
-        return RedirectResponse(url=f"{FRONTEND_URL}?error={error}")
-    
-    if not code or not state:
-        logger.error("Missing authorization code or state")
-        return RedirectResponse(url=f"{FRONTEND_URL}?error=no_code_or_state")
-    
-    try:
-        # Verify state
-        stored_state = _pop_state(state)
-        if not stored_state:
-            logger.error("State mismatch or expired")
-            return RedirectResponse(url=f"{FRONTEND_URL}?error=state_mismatch")
-        
-        # Exchange code for token
-        async with httpx.AsyncClient() as client:
-            auth = httpx.BasicAuth(REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET)
-            
-            token_response = await client.post(
-                "https://www.reddit.com/api/v1/access_token",
-                auth=auth,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": f"{BACKEND_URL}/auth/reddit/callback"
-                },
-                headers={"User-Agent": "CyberGuard/1.0"}
-            )
-            
-            token_response.raise_for_status()
-            token_data = token_response.json()
-            access_token = token_data["access_token"]
-            
-            # Get user info
-            user_response = await client.get(
-                "https://oauth.reddit.com/api/v1/me",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "User-Agent": "CyberGuard/1.0"
-                }
-            )
-            user_response.raise_for_status()
-            user_info = user_response.json()
-            
-            user_id = user_info["id"]
-            username = user_info["name"]
-            
-            # Store in Redis
-            if redis_client:
-                platform_data = {
-                    "access_token": access_token,
-                    "refresh_token": token_data.get("refresh_token"),
-                    "user_id": user_id,
-                    "username": username,
-                    "platform": "reddit"
-                }
-                
-                redis_client.setex(
-                    f"reddit_token:{user_id}",
-                    365 * 24 * 60 * 60,  # 1 year (Reddit tokens don't expire if refreshed)
-                    json.dumps(platform_data)
-                )
-                
-                logger.info(f"Stored Reddit tokens for {username} ({user_id})")
-            
-            return RedirectResponse(
-                url=(
-                    f"{FRONTEND_URL}/callback"
-                    f"?platform=reddit"
-                    f"&access_token={access_token}"
-                    f"&user_id={user_id}"
-                    f"&username={username}"
-                )
-            )
-    
-    except Exception as e:
-        logger.error(f"Reddit callback error: {e}", exc_info=True)
-        return RedirectResponse(url=f"{FRONTEND_URL}?error=reddit_auth_failed&details={str(e)}")
 
 
 # ============= COMMON ROUTES =============

@@ -132,7 +132,6 @@ const Dashboard: React.FC = () => {
                                 <option value="all">🌐 All Platforms</option>
                                 <option value="twitter">𝕏 Twitter</option>
                                 <option value="discord">💬 Discord</option>
-                                <option value="reddit">🔴 Reddit</option>
                             </select>
                         </div>
 

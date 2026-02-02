@@ -64,7 +64,6 @@ const TweetCard: React.FC<TweetCardProps> = ({ event, index }) => {
     const getPlatformEmoji = (platform: string) => {
         switch (platform.toLowerCase()) {
             case 'discord': return '💬';
-            case 'reddit': return '🔴';
             case 'twitter':
             default: return '𝕏';
         }
