@@ -259,8 +259,10 @@ async def discord_callback(
             logger.error("State mismatch or expired")
             return RedirectResponse(url=f"{FRONTEND_URL}?error=state_mismatch")
         
-        # Exchange code for token
-        async with httpx.AsyncClient() as client:
+        # Exchange code for token with timeout and retry
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            logger.info("Exchanging code for Discord token...")
             token_response = await client.post(
                 "https://discord.com/api/oauth2/token",
                 data={
