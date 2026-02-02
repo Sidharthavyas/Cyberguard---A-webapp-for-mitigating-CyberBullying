@@ -255,13 +255,20 @@ CyberGuard uses a sophisticated ensemble approach with intelligent fallback:
 
 ### Primary Model: MuRIL (Multilingual)
 
+> **Finetuned on 40,000+ samples of code-mixed Indian social media text.**
+
 | Property | Value |
 |----------|-------|
-| **Model** | `Sidhartha2004/finetuned_cyberbullying_muril` |
-| **Base** | Google's MuRIL (Multilingual Representations for Indian Languages) |
-| **Languages** | Hindi, Telugu, English, Tamil, Bengali, + more |
-| **Optimal Threshold** | 0.4474 (tuned for cyberbullying detection) |
-| **Task** | Binary classification (Safe vs Bullying) |
+| **Model** | [`Sidhartha2004/finetuned_cyberbullying_muril`](https://huggingface.co/Sidhartha2004/finetuned_cyberbullying_muril) |
+| **Architecture** | Google's **MuRIL** (Multilingual Representations for Indian Languages) - BERT-based |
+| **Training Data** | **40,000+ samples** of aggressive/non-aggressive comments |
+| **Languages** | **Hindi**, **English**, **Telugu**, **Tamil**, **Bengali**, **Marathi**, **Gujarati**, **Kannada**, **Malayalam**, **Punjabi** |
+| **Specialty** | Handles **Code-Mixing** (e.g., "Tu bahut stupid hai") effectively |
+| **Optimal Threshold** | **0.4474** (Calibrated for max F1-score) |
+| **Task** | Binary Classification (0: Safe, 1: Bullying) |
+| **Hosting** | Hosted on Hugging Face Hub (Free Inference) |
+
+The model was specifically fine-tuned to handle the linguistic nuances of the Indian internet landscape, where users frequently mix English with native languages (Code-Switching). Unlike standard multilingual BERT models, MuRIL is pre-trained on transliterated text, making it superior for analyzing social media content in South Asia.
 
 ### Secondary Model: Toxic-BERT
 
