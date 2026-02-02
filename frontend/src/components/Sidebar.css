@@ -126,6 +126,11 @@
     font-weight: 600;
 }
 
+.menu-item-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .menu-icon {
     font-size: 1.25rem;
     flex-shrink: 0;

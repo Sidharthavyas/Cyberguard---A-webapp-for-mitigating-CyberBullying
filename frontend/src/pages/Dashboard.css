@@ -166,17 +166,15 @@
     border-color: var(--text-primary);
 }
 
+/* Platforms View */
 .platforms-section {
     margin-bottom: 2rem;
-}
-
-/* Tweets Section */
-.tweets-section {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
 }
 
+/* Shared section header */
 .section-header {
     display: flex;
     justify-content: space-between;
@@ -230,8 +228,18 @@
     margin: 0;
 }
 
-/* Tweets Grid */
-.tweets-grid {
+/* Feed View */
+.feed-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.feed-header {
+    align-items: center;
+}
+
+.feed-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 1.25rem;
@@ -239,7 +247,7 @@
 
 /* Responsive */
 @media (max-width: 1024px) {
-    .tweets-grid {
+    .feed-grid {
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: 1rem;
     }

@@ -43,7 +43,14 @@ const Dashboard: React.FC = () => {
     return (
         <div className="dashboard">
             {/* Sidebar with Hamburger Menu */}
-            <Sidebar currentPage={activeView} />
+            <Sidebar
+                currentPage={activeView}
+                onNavigate={(pageId) => {
+                    if (pageId === 'feed' || pageId === 'platforms') {
+                        setActiveView(pageId);
+                    }
+                }}
+            />
 
             <header className="dashboard-header">
                 <div className="header-content container">
@@ -113,6 +120,14 @@ const Dashboard: React.FC = () => {
                 {/* Platform Cards View */}
                 {activeView === 'platforms' && (
                     <section className="platforms-section">
+                        <div className="section-header">
+                            <div>
+                                <h2 className="section-title">Connected Platforms</h2>
+                                <p className="section-subtitle">
+                                    Control which sources CyberGuard listens to across your ecosystem.
+                                </p>
+                            </div>
+                        </div>
                         <PlatformCards />
                     </section>
                 )}
@@ -120,8 +135,13 @@ const Dashboard: React.FC = () => {
                 {/* Moderation Feed */}
                 {activeView === 'feed' && (
                     <section className="feed-section">
-                        <div className="feed-header">
-                            <h2 className="section-title">Moderation Feed</h2>
+                        <div className="section-header feed-header">
+                            <div>
+                                <h2 className="section-title">Live Moderation Feed</h2>
+                                <p className="section-subtitle">
+                                    See content as it is analyzed in real time across all connected platforms.
+                                </p>
+                            </div>
 
                             {/* Platform Filter */}
                             <select
@@ -129,7 +149,7 @@ const Dashboard: React.FC = () => {
                                 value={platformFilter}
                                 onChange={(e) => setPlatformFilter(e.target.value)}
                             >
-                                <option value="all">🌐 All Platforms</option>
+                                <option value="all">🌐 All platforms</option>
                                 <option value="twitter">𝕏 Twitter</option>
                                 <option value="discord">💬 Discord</option>
                             </select>

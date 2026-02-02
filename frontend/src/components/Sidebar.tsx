@@ -8,9 +8,10 @@ import './Sidebar.css';
 
 interface SidebarProps {
     currentPage?: string;
+    onNavigate?: (pageId: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage = 'feed' }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentPage = 'feed', onNavigate }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     const toggleSidebar = () => {
@@ -18,11 +19,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage = 'feed' }) => {
     };
 
     const menuItems = [
-        { id: 'feed', label: 'Feed', icon: '📊' },
-        { id: 'platforms', label: 'Platforms', icon: '🔗' },
-        { id: 'analytics', label: 'Analytics', icon: '📈' },
-        { id: 'settings', label: 'Settings', icon: '⚙️' }
-    ];
+        { id: 'feed', label: 'Live Feed', icon: '📊', available: true },
+        { id: 'platforms', label: 'Platforms', icon: '🔗', available: true },
+        { id: 'analytics', label: 'Analytics', icon: '📈', available: false },
+        { id: 'settings', label: 'Settings', icon: '⚙️', available: false }
+    ] as const;
 
     return (
         <>
@@ -89,12 +90,15 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage = 'feed' }) => {
                             {menuItems.map((item) => (
                                 <li key={item.id}>
                                     <button
-                                        className={`menu-item ${currentPage === item.id ? 'active' : ''}`}
+                                        className={`menu-item ${currentPage === item.id ? 'active' : ''} ${!item.available ? 'menu-item-disabled' : ''}`}
+                                        disabled={!item.available}
                                         onClick={() => {
-                                            // Navigate to page (implement routing later)
-                                            console.log(`Navigate to ${item.id}`);
+                                            if (item.available) {
+                                                onNavigate?.(item.id);
+                                            }
                                             setIsOpen(false);
                                         }}
+                                        title={item.available ? item.label : 'Coming soon'}
                                     >
                                         <span className="menu-icon">{item.icon}</span>
                                         <span className="menu-label">{item.label}</span>
