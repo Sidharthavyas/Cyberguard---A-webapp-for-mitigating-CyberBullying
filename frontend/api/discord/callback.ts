@@ -28,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Verify state from cookie
     const cookies = req.headers.cookie || '';
-    const stateCookie = cookies.split(';').find(c => c.trim().startsWith('discord_oauth_state='));
+    const stateCookie = cookies.split(';').find((c: string) => c.trim().startsWith('discord_oauth_state='));
     const storedState = stateCookie?.split('=')[1];
 
     if (state !== storedState) {
