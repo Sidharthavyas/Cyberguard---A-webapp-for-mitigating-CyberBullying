@@ -12,6 +12,8 @@ import MetricsPanel from '../components/MetricsPanel';
 import ThemeToggle from '../components/ThemeToggle';
 import Sidebar from '../components/Sidebar';
 import PlatformCards from '../components/PlatformCards';
+import AnalyticsPanel from '../components/AnalyticsPanel';
+import SettingsPanel from '../components/SettingsPanel';
 import './Dashboard.css';
 
 const Dashboard: React.FC = () => {
@@ -21,7 +23,7 @@ const Dashboard: React.FC = () => {
     const userId = localStorage.getItem('twitter_user_id');
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [platformFilter, setPlatformFilter] = useState<string>('all');
-    const [activeView, setActiveView] = useState<'feed' | 'platforms'>('feed');
+    const [activeView, setActiveView] = useState<'feed' | 'platforms' | 'analytics' | 'settings'>('feed');
 
     const handleLogout = async () => {
         setIsLoggingOut(true);
@@ -46,9 +48,7 @@ const Dashboard: React.FC = () => {
             <Sidebar
                 currentPage={activeView}
                 onNavigate={(pageId) => {
-                    if (pageId === 'feed' || pageId === 'platforms') {
-                        setActiveView(pageId);
-                    }
+                    setActiveView(pageId as typeof activeView);
                 }}
             />
 
@@ -88,21 +88,23 @@ const Dashboard: React.FC = () => {
             </header>
 
             <main className="dashboard-main container">
-                {/* View Toggle */}
-                <div className="view-toggle">
-                    <button
-                        className={`view-btn ${activeView === 'feed' ? 'active' : ''}`}
-                        onClick={() => setActiveView('feed')}
-                    >
-                        📊 Feed
-                    </button>
-                    <button
-                        className={`view-btn ${activeView === 'platforms' ? 'active' : ''}`}
-                        onClick={() => setActiveView('platforms')}
-                    >
-                        🔗 Platforms
-                    </button>
-                </div>
+                {/* View Toggle (for primary views) */}
+                {(activeView === 'feed' || activeView === 'platforms') && (
+                    <div className="view-toggle">
+                        <button
+                            className={`view-btn ${activeView === 'feed' ? 'active' : ''}`}
+                            onClick={() => setActiveView('feed')}
+                        >
+                            📊 Feed
+                        </button>
+                        <button
+                            className={`view-btn ${activeView === 'platforms' ? 'active' : ''}`}
+                            onClick={() => setActiveView('platforms')}
+                        >
+                            🔗 Platforms
+                        </button>
+                    </div>
+                )}
 
                 {/* Error Banner */}
                 {error && (
@@ -185,6 +187,20 @@ const Dashboard: React.FC = () => {
                                 </div>
                             )}
                         </AnimatePresence>
+                    </section>
+                )}
+
+                {/* Analytics View */}
+                {activeView === 'analytics' && (
+                    <section className="analytics-section">
+                        <AnalyticsPanel />
+                    </section>
+                )}
+
+                {/* Settings View */}
+                {activeView === 'settings' && (
+                    <section className="settings-section">
+                        <SettingsPanel />
                     </section>
                 )}
             </main>

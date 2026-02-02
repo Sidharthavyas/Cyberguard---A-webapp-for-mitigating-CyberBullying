@@ -4,8 +4,8 @@
 
 .hamburger-btn {
     position: fixed;
-    top: 1.5rem;
-    left: 1.5rem;
+    top: 1rem;
+    left: 1rem;
     z-index: 1001;
     width: 44px;
     height: 44px;
@@ -156,22 +156,31 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     cursor: pointer;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     font-size: 0.9375rem;
     font-weight: 600;
     transition: all 0.2s ease;
 }
 
 .logout-btn:hover {
-    background: var(--danger);
-    color: white;
-    border-color: var(--danger);
+    background: var(--bg-secondary);
+    border-color: var(--border-dark);
+}
+
+/* Theme-specific logout button states */
+[data-theme="dark"] .logout-btn {
+    color: var(--text-inverse);
+    border-color: var(--border-dark);
+}
+
+[data-theme="dark"] .logout-btn:hover {
+    background: var(--bg-secondary);
 }
 
 /* Desktop */
 @media (min-width: 768px) {
     .hamburger-btn {
-        top: 2rem;
-        left: 2rem;
+        top: 1.75rem;
+        left: 1.75rem;
     }
 }

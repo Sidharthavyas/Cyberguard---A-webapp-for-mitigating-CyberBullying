@@ -13,6 +13,7 @@ load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any
 
 # Import routers and modules
 from auth import router as auth_router
@@ -96,6 +97,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Simple in-memory settings store (per user)
+settings_store: Dict[str, Dict[str, Any]] = {}
+
 # Include routers
 app.include_router(auth_router)
 
@@ -134,6 +138,15 @@ async def get_stats():
     
     Returns:
         Current statistics including scan/flag/delete counts
+    """
+    return metrics.get_stats()
+
+
+@app.get("/analytics/summary")
+async def get_analytics_summary():
+    """
+    Analytics summary alias for current metrics.
+    Can be extended later with more derived insights.
     """
     return metrics.get_stats()
 
@@ -182,6 +195,33 @@ async def reset_metrics():
     """
     metrics.reset()
     return {"message": "Metrics reset successfully"}
+
+
+# ============= SETTINGS APIS =============
+
+@app.get("/settings/{user_id}")
+async def get_settings(user_id: str):
+    """
+    Get settings for a given user.
+    Stored in-memory only (resets on server restart).
+    """
+    default_settings = {
+        "realtime_enabled": True,
+        "auto_delete": True,
+        "language_filter": "all"
+    }
+    return settings_store.get(user_id, default_settings)
+
+
+@app.post("/settings/{user_id}")
+async def update_settings(user_id: str, payload: Dict[str, Any]):
+    """
+    Update settings for a given user.
+    """
+    existing = settings_store.get(user_id, {})
+    existing.update(payload or {})
+    settings_store[user_id] = existing
+    return existing
 
 
 # ============= PLATFORM MANAGEMENT APIS =============

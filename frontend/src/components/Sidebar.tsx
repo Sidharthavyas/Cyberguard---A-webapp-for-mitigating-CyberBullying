@@ -21,8 +21,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage = 'feed', onNavigate }) =
     const menuItems = [
         { id: 'feed', label: 'Live Feed', icon: '📊', available: true },
         { id: 'platforms', label: 'Platforms', icon: '🔗', available: true },
-        { id: 'analytics', label: 'Analytics', icon: '📈', available: false },
-        { id: 'settings', label: 'Settings', icon: '⚙️', available: false }
+        { id: 'analytics', label: 'Analytics', icon: '📈', available: true },
+        { id: 'settings', label: 'Settings', icon: '⚙️', available: true }
     ] as const;
 
     return (

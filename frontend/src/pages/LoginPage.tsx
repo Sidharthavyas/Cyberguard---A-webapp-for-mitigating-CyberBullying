@@ -10,8 +10,11 @@ type Platform = 'twitter' | 'discord';
 
 const LoginPage: React.FC = () => {
     const [selectedPlatform, setSelectedPlatform] = useState<Platform>('twitter');
+    const [isRedirecting, setIsRedirecting] = useState(false);
 
     const handleLogin = () => {
+        if (isRedirecting) return;
+        setIsRedirecting(true);
         // Use VITE_API_URL for production (Hugging Face) or localhost for dev
         const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -127,13 +130,14 @@ const LoginPage: React.FC = () => {
                     onClick={handleLogin}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
+                    disabled={isRedirecting}
                     style={{
                         background: platformInfo[selectedPlatform].color
                     }}
                 >
                     {platformInfo[selectedPlatform].icon}
                     <span style={{ marginLeft: '0.5rem' }}>
-                        Connect with {platformInfo[selectedPlatform].name}
+                        {isRedirecting ? 'Connecting...' : `Connect with ${platformInfo[selectedPlatform].name}`}
                     </span>
                 </motion.button>
             </motion.div>

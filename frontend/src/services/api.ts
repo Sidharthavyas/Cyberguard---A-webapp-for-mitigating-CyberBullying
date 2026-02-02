@@ -60,3 +60,21 @@ export const statsAPI = {
         return response.data;
     }
 };
+
+export const analyticsAPI = {
+    getSummary: async () => {
+        const response = await api.get('/analytics/summary');
+        return response.data;
+    }
+};
+
+export const settingsAPI = {
+    getSettings: async (userId: string) => {
+        const response = await api.get(`/settings/${userId}`);
+        return response.data;
+    },
+    updateSettings: async (userId: string, payload: any) => {
+        const response = await api.post(`/settings/${userId}`, payload);
+        return response.data;
+    }
+};

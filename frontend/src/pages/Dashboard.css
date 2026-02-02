@@ -245,6 +245,12 @@
     gap: 1.25rem;
 }
 
+/* Analytics & Settings sections */
+.analytics-section,
+.settings-section {
+    margin-top: 1rem;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
     .feed-grid {
