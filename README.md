@@ -1,3 +1,14 @@
+---
+title: CyberGuard API
+emoji: "🛡️"
+colorFrom: red
+colorTo: orange
+sdk: docker
+app_file: backend/main.py
+pinned: false
+license: mit
+---
+
 # Cyberbullying Mitigation System 🛡️
 
 A **100% free-tier** Twitter cyberbullying detection and mitigation system using multilingual AI models, real-time WebSocket streaming, and automated moderation—all without any infrastructure costs.
