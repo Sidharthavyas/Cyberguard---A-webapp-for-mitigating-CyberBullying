@@ -2,7 +2,7 @@
 title: CyberGuard API
 emoji: "🛡️"
 colorFrom: red
-colorTo: orange
+colorTo: yellow
 sdk: docker
 app_file: backend/main.py
 pinned: false
