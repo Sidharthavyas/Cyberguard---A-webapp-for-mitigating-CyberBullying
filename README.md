@@ -1,5 +1,5 @@
 ---
-title: CyberGuard API
+title: CyberGuard
 emoji: "🛡️"
 colorFrom: red
 colorTo: yellow
