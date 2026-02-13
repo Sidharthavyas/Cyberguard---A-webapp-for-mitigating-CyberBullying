@@ -42,37 +42,52 @@ async def poll_mentions():
     else:
         logger.warning("No OAuth 1.0a credentials - deletion will be disabled")
     
-    # Load user info from Redis session (for username)
+    # Redis setup for session retrieval
     import redis
     import json
     redis_url = os.getenv("REDIS_URL")
-    username = None
     
+    redis_client = None
     if redis_url:
         redis_client = redis.from_url(redis_url)
-        session_data = redis_client.get("session:current_user")
-        if session_data:
-            user_data = json.loads(session_data)
-            username = user_data.get("username")
-            if username:
-                logger.info(f"Monitoring @{username}'s account")
-            else:
-                logger.warning("No username found in session")
-        else:
-            logger.info("No user session in Redis yet - will monitor once user logs in via dashboard")
     else:
         logger.warning("No Redis URL - cannot load user session")
-    
+
     processed_ids = set()  # Track processed tweet IDs to avoid duplicates
     
     while True:
         try:
+            # Dynamic user loading inside loop to handle logins
+            user_id = None
+            username = None
+            
+            if redis_client:
+                session_data = redis_client.get("session:current_user")
+                if session_data:
+                    user_data = json.loads(session_data)
+                    username = user_data.get("username")
+                    user_id = user_data.get("user_id")
+                    
+                    if username and user_id:
+                        # logger.info(f"Monitoring @{username}'s account ({user_id})")
+                        pass
+                    else:
+                        logger.warning("Incomplete user session data")
+                else:
+                    # logger.info("No user session in Redis - waiting for login")
+                    pass
+            
+            if not user_id:
+                # Wait and retry if no user logged in
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
             all_tweets = []
             
             # 1. Get mentions (tweets that @mention the user)
-            logger.info("Polling for mentions...")
+            logger.info(f"Polling mentions for @{username}...")
             try:
-                mentions = twitter.get_recent_mentions(max_results=10)
+                mentions = twitter.get_recent_mentions(max_results=10, user_id=user_id)
                 if mentions:
                     logger.info(f"Found {len(mentions)} mentions")
                     all_tweets.extend(mentions)
@@ -84,7 +99,7 @@ async def poll_mentions():
             
             # 2. Search for replies to user's posts (Free tier: search_recent_tweets)
             if username:
-                logger.info(f"Searching for replies to @{username}...")
+                # logger.info(f"Searching for replies to @{username}...")
                 try:
                     # "to:username" finds tweets directed at the user (replies & mentions)
                     replies = twitter.search_recent_tweets(f"to:{username}", max_results=10)
@@ -115,8 +130,6 @@ async def poll_mentions():
                             logger.error(f"Error processing tweet {tweet['id']}: {e}")
                     else:
                         logger.info(f"Skipping tweet {tweet['id']} (filtered)")
-            else:
-                logger.info("No new tweets to process")
             
             # Limit memory usage - keep only last 1000 IDs
             if len(processed_ids) > 1000:

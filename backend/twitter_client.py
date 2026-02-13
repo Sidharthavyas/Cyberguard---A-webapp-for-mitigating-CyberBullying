@@ -69,18 +69,21 @@ class TwitterClient:
         except Exception as e:
             logger.error(f"Failed to get user info: {e}")
     
-    def get_recent_mentions(self, max_results: int = 10) -> List[Dict[str, Any]]:
+    def get_recent_mentions(self, max_results: int = 10, user_id: str = None) -> List[Dict[str, Any]]:
         """
         Get recent mentions for the authenticated user.
         Uses free tier endpoint with rate limit: 75 requests per 15 minutes.
         
         Args:
             max_results: Maximum number of mentions to retrieve (5-100)
+            user_id: Optional user ID to fetch mentions for (overrides self.user_id)
             
         Returns:
             List of mention dictionaries
         """
-        if not self.user_id:
+        target_user_id = user_id or self.user_id
+        
+        if not target_user_id:
             logger.warning("No user ID set, cannot fetch mentions")
             return []
         
@@ -88,20 +91,20 @@ class TwitterClient:
             # Get last poll time from Redis
             since_id = None
             if self.redis_client:
-                since_id = self.redis_client.get("last_mention_id")
+                since_id = self.redis_client.get(f"last_mention_id:{target_user_id}")
                 if since_id:
                     since_id = since_id.decode('utf-8')
             
             # Fetch mentions
             response = self.client.get_users_mentions(
-                id=self.user_id,
+                id=target_user_id,
                 max_results=min(max_results, 100),
                 since_id=since_id,
                 tweet_fields=["created_at", "text", "author_id", "lang"]
             )
             
             if not response.data:
-                logger.info("No new mentions found")
+                logger.info(f"No new mentions found for user {target_user_id}")
                 return []
             
             mentions = []
@@ -117,13 +120,13 @@ class TwitterClient:
             # Update last poll ID
             if mentions and self.redis_client:
                 latest_id = mentions[0]["id"]
-                self.redis_client.set("last_mention_id", str(latest_id))
+                self.redis_client.set(f"last_mention_id:{target_user_id}", str(latest_id))
             
-            logger.info(f"Retrieved {len(mentions)} new mentions")
+            logger.info(f"Retrieved {len(mentions)} new mentions for user {target_user_id}")
             return mentions
             
         except tweepy.errors.TweepyException as e:
-            logger.error(f"Error fetching mentions: {e}")
+            logger.error(f"Error fetching mentions for {target_user_id}: {e}")
             return []
     
     def delete_tweet(self, tweet_id: str) -> bool:
