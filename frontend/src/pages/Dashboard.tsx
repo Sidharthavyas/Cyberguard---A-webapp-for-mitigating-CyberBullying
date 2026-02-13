@@ -27,11 +27,11 @@ const Dashboard: React.FC = () => {
     const [pollerStatus, setPollerStatus] = useState<string>("Initializing...");
 
     // Update status from events
-    if (latestEvent && latestEvent.type === 'status') {
-        // @ts-ignore - Dynamic event type
-        if (latestEvent.message !== pollerStatus) {
-            // @ts-ignore
-            setPollerStatus(latestEvent.message);
+    // Update status from events
+    if (latestEvent && 'type' in latestEvent && latestEvent.type === 'status') {
+        const statusEvent = latestEvent as { message: string };
+        if (statusEvent.message !== pollerStatus) {
+            setPollerStatus(statusEvent.message);
         }
     }
 

@@ -28,18 +28,25 @@ interface ModerationEvent {
 }
 
 interface ConnectionEvent {
-    type: string;
+    type: 'connection';
     message: string;
     stats?: any;
     timestamp?: string;
 }
 
-type WebSocketMessage = ModerationEvent | ConnectionEvent;
+interface StatusEvent {
+    type: 'status';
+    message: string;
+    status: 'idle' | 'working' | 'success' | 'error';
+    timestamp?: string;
+}
+
+export type WebSocketMessage = ModerationEvent | ConnectionEvent | StatusEvent;
 
 interface UseWebSocketReturn {
     isConnected: boolean;
     events: ModerationEvent[];
-    latestEvent: ModerationEvent | null;
+    latestEvent: WebSocketMessage | null;
     error: string | null;
 }
 
@@ -49,7 +56,7 @@ const RECONNECT_DELAY = 3000; // 3 seconds
 export const useWebSocket = (): UseWebSocketReturn => {
     const [isConnected, setIsConnected] = useState(false);
     const [events, setEvents] = useState<ModerationEvent[]>([]);
-    const [latestEvent, setLatestEvent] = useState<ModerationEvent | null>(null);
+    const [latestEvent, setLatestEvent] = useState<WebSocketMessage | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const ws = useRef<WebSocket | null>(null);
@@ -74,6 +81,12 @@ export const useWebSocket = (): UseWebSocketReturn => {
                     // Handle connection event
                     if ('type' in data && data.type === 'connection') {
                         console.log('Connection established:', data.message);
+                        return;
+                    }
+
+                    // Handle status event
+                    if ('type' in data && data.type === 'status') {
+                        setLatestEvent(data as StatusEvent);
                         return;
                     }
 
