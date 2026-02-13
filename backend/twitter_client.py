@@ -184,7 +184,8 @@ class TwitterClient:
                     "text": tweet.text,
                     "author_id": tweet.author_id,
                     "created_at": tweet.created_at.isoformat() if tweet.created_at else None,
-                    "language": tweet.lang if hasattr(tweet, 'lang') else "unknown"
+                    "language": tweet.lang if hasattr(tweet, 'lang') else "unknown",
+                    "platform": "twitter"
                 })
             
             return tweets
