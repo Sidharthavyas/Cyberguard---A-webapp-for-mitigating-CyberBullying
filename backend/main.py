@@ -101,7 +101,10 @@ app.add_middleware(
 settings_store: Dict[str, Dict[str, Any]] = {}
 
 # Include routers
+# Include routers
+from debug_router import router as debug_router
 app.include_router(auth_router)
+app.include_router(debug_router)
 
 
 @app.get("/")

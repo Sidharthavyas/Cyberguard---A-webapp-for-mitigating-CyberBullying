@@ -57,79 +57,7 @@ async def poll_mentions():
     
     while True:
         try:
-            # Dynamic user loading inside loop to handle logins
-            user_id = None
-            username = None
-            
-            if redis_client:
-                session_data = redis_client.get("session:current_user")
-                if session_data:
-                    user_data = json.loads(session_data)
-                    username = user_data.get("username")
-                    user_id = user_data.get("user_id")
-                    
-                    if username and user_id:
-                        # logger.info(f"Monitoring @{username}'s account ({user_id})")
-                        pass
-                    else:
-                        logger.warning("Incomplete user session data")
-                else:
-                    # logger.info("No user session in Redis - waiting for login")
-                    pass
-            
-            if not user_id:
-                # Wait and retry if no user logged in
-                await asyncio.sleep(POLL_INTERVAL)
-                continue
-
-            all_tweets = []
-            
-            # 1. Get mentions (tweets that @mention the user)
-            logger.info(f"Polling mentions for @{username}...")
-            try:
-                mentions = twitter.get_recent_mentions(max_results=10, user_id=user_id)
-                if mentions:
-                    logger.info(f"Found {len(mentions)} mentions")
-                    all_tweets.extend(mentions)
-            except Exception as e:
-                if "429" in str(e) or "Too Many Requests" in str(e):
-                    logger.warning(f"Rate limit hit on mentions. Will retry next cycle.")
-                else:
-                    logger.error(f"Error fetching mentions: {e}")
-            
-            # 2. Search for replies to user's posts (Free tier: search_recent_tweets)
-            if username:
-                # logger.info(f"Searching for replies to @{username}...")
-                try:
-                    # "to:username" finds tweets directed at the user (replies & mentions)
-                    replies = twitter.search_recent_tweets(f"to:{username}", max_results=10)
-                    if replies:
-                        logger.info(f"Found {len(replies)} replies/conversations")
-                        all_tweets.extend(replies)
-                except Exception as e:
-                    if "429" in str(e) or "Too Many Requests" in str(e):
-                        logger.warning(f"Rate limit hit on search. Will retry next cycle.")
-                    else:
-                        logger.error(f"Error searching tweets: {e}")
-            
-            # Deduplicate and process
-            new_tweets = []
-            for tweet in all_tweets:
-                tweet_id = tweet.get("id")
-                if tweet_id and tweet_id not in processed_ids:
-                    new_tweets.append(tweet)
-                    processed_ids.add(tweet_id)
-            
-            if new_tweets:
-                logger.info(f"Processing {len(new_tweets)} new tweets...")
-                for tweet in new_tweets:
-                    if moderation_engine.should_process(tweet):
-                        try:
-                            await moderation_engine.process_tweet(tweet)
-                        except Exception as e:
-                            logger.error(f"Error processing tweet {tweet['id']}: {e}")
-                    else:
-                        logger.info(f"Skipping tweet {tweet['id']} (filtered)")
+            await poll_once(twitter, redis_client, processed_ids)
             
             # Limit memory usage - keep only last 1000 IDs
             if len(processed_ids) > 1000:
@@ -145,6 +73,87 @@ async def poll_mentions():
             logger.error(f"Error in polling loop: {e}")
             # Wait a bit longer on error
             await asyncio.sleep(POLL_INTERVAL * 2)
+
+
+async def poll_once(twitter, redis_client, processed_ids: set):
+    """
+    Execute a single polling iteration.
+    Extracted for debugging purposes.
+    """
+    import json
+    
+    # Dynamic user loading inside loop to handle logins
+    user_id = None
+    username = None
+    
+    if redis_client:
+        session_data = redis_client.get("session:current_user")
+        if session_data:
+            user_data = json.loads(session_data)
+            username = user_data.get("username")
+            user_id = user_data.get("user_id")
+            
+            if username and user_id:
+                # logger.info(f"Monitoring @{username}'s account ({user_id})")
+                pass
+            else:
+                logger.warning("Incomplete user session data")
+        else:
+            # logger.info("No user session in Redis - waiting for login")
+            pass
+    
+    if not user_id:
+        # User not logged in
+        return
+
+    all_tweets = []
+    
+    # 1. Get mentions (tweets that @mention the user)
+    # logger.info(f"Polling mentions for @{username}...")
+    try:
+        mentions = twitter.get_recent_mentions(max_results=10, user_id=user_id)
+        if mentions:
+            logger.info(f"Found {len(mentions)} mentions")
+            all_tweets.extend(mentions)
+    except Exception as e:
+        if "429" in str(e) or "Too Many Requests" in str(e):
+            logger.warning(f"Rate limit hit on mentions. Will retry next cycle.")
+        else:
+            logger.error(f"Error fetching mentions: {e}")
+    
+    # 2. Search for replies to user's posts (Free tier: search_recent_tweets)
+    if username:
+        # logger.info(f"Searching for replies to @{username}...")
+        try:
+            # "to:username" finds tweets directed at the user (replies & mentions)
+            replies = twitter.search_recent_tweets(f"to:{username}", max_results=10)
+            if replies:
+                logger.info(f"Found {len(replies)} replies/conversations")
+                all_tweets.extend(replies)
+        except Exception as e:
+            if "429" in str(e) or "Too Many Requests" in str(e):
+                logger.warning(f"Rate limit hit on search. Will retry next cycle.")
+            else:
+                logger.error(f"Error searching tweets: {e}")
+    
+    # Deduplicate and process
+    new_tweets = []
+    for tweet in all_tweets:
+        tweet_id = tweet.get("id")
+        if tweet_id and tweet_id not in processed_ids:
+            new_tweets.append(tweet)
+            processed_ids.add(tweet_id)
+    
+    if new_tweets:
+        logger.info(f"Processing {len(new_tweets)} new tweets...")
+        for tweet in new_tweets:
+            if moderation_engine.should_process(tweet):
+                try:
+                    await moderation_engine.process_tweet(tweet)
+                except Exception as e:
+                    logger.error(f"Error processing tweet {tweet['id']}: {e}")
+            else:
+                logger.info(f"Skipping tweet {tweet['id']} (filtered)")
 
 
 async def poll_search_query(query: str):
