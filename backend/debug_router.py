@@ -22,6 +22,23 @@ if redis_url:
     redis_client = redis.from_url(redis_url)
 
 
+@router.get("/config")
+async def get_config():
+    """check backend configuration (masked)."""
+    backend_url = os.getenv("BACKEND_URL", "default_localhost")
+    frontend_url = os.getenv("FRONTEND_URL", "default_localhost")
+    
+    return {
+        "backend_url": backend_url,
+        "frontend_url": frontend_url,
+        "has_redis": bool(os.getenv("REDIS_URL")),
+        "has_twitter_id": bool(os.getenv("TWITTER_CLIENT_ID")),
+        "has_discord_id": bool(os.getenv("DISCORD_CLIENT_ID")),
+        "has_discord_secret": bool(os.getenv("DISCORD_CLIENT_SECRET")),
+        "has_discord_bot_token": bool(os.getenv("DISCORD_BOT_TOKEN")),
+    }
+
+
 @router.get("/twitter/session")
 async def get_twitter_session():
     """Check the current cached Twitter session in Redis."""
