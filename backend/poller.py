@@ -54,10 +54,20 @@ async def poll_mentions():
         logger.warning("No Redis URL - cannot load user session")
 
     processed_ids = set()  # Track processed tweet IDs to avoid duplicates
+    cycle_count = 0
     
     while True:
         try:
+            cycle_count += 1
             await poll_once(twitter, redis_client, processed_ids)
+            
+            # Log heartbeat if no user found, but don't spam
+            if cycle_count % 12 == 1:  # Every ~5 minutes (12 * 25s)
+                # Check directly here to log message
+                if redis_client:
+                    session = redis_client.get("session:current_user")
+                    if not session:
+                        logger.info(f"Poller heartbeat: Accessing Redis OK, but no 'session:current_user' found. Waiting for login...")
             
             # Limit memory usage - keep only last 1000 IDs
             if len(processed_ids) > 1000:

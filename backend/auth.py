@@ -218,9 +218,10 @@ async def discord_login():
         _store_state(state, "discord_oauth")  # Store state for verification
         
         # Discord OAuth URL
+        redirect_uri = f"{BACKEND_URL}/auth/discord/callback"
         params = {
             "client_id": DISCORD_CLIENT_ID,
-            "redirect_uri": f"{BACKEND_URL}/auth/discord/callback",
+            "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": "identify guilds",
             "state": state
@@ -228,7 +229,11 @@ async def discord_login():
         
         authorization_url = f"https://discord.com/api/oauth2/authorize?{urllib.parse.urlencode(params)}"
         
-        logger.info(f"Redirecting to Discord OAuth: {authorization_url}")
+        logger.info(f"Initiating Discord Login.")
+        logger.info(f"Expected Redirect URI: {redirect_uri}") 
+        logger.info(f"Please ensure this EXACT URL is whitelisted in Discord Dev Portal.")
+        logger.info(f"Full Auth URL: {authorization_url}")
+        
         return RedirectResponse(url=authorization_url)
     
     except Exception as e:
