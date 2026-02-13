@@ -311,7 +311,30 @@ async def discord_callback(
                     json.dumps(platform_data)
                 )
                 
-                logger.info(f"Stored Discord tokens for {username} ({user_id})")
+                # Set active session so poller knows who is logged in
+                session_data = {
+                    "user_id": str(user_id),
+                    "username": username,
+                    "platform": "discord",
+                    "access_token": access_token
+                }
+                redis_client.set("session:current_user", json.dumps(session_data))
+                
+                logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
+                
+                # Start Discord Poller immediately
+                try:
+                    from unified_poller import add_platform
+                    bot_token = os.getenv("DISCORD_BOT_TOKEN")
+                    if bot_token:
+                        await add_platform("discord", {
+                            "bot_token": bot_token,
+                            "guild_ids": [] # Monitor all guilds bot is in
+                        })
+                    else:
+                        logger.warning("DISCORD_BOT_TOKEN not found in env - cannot start Discord poller automatically")
+                except Exception as e:
+                    logger.error(f"Failed to auto-start Discord poller: {e}")
             
             return RedirectResponse(
                 url=(

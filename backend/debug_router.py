@@ -93,10 +93,18 @@ async def get_discord_status():
     from platform_manager import get_platform_manager
     manager = get_platform_manager()
     
-    pollers = manager.get_connected_platforms()
-    discord_active = "discord" in pollers
+    # Check if it's actually running in the manager
+    running_pollers = list(manager.active_pollers.keys())
+    discord_running = "discord" in running_pollers
+    
+    # Check if it's configured in Redis
+    from unified_poller import get_connected_platforms
+    configured = get_connected_platforms()
+    discord_configured = "discord" in configured
     
     return {
-        "discord_active": discord_active,
-        "active_pollers": pollers
+        "discord_running": discord_running,
+        "discord_configured": discord_configured,
+        "running_pollers": running_pollers,
+        "configured_platforms": list(configured.keys())
     }
