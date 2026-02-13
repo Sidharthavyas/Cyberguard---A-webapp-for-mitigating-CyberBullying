@@ -10,6 +10,7 @@ import logging
 from dotenv import load_dotenv
 from twitter_client import get_twitter_client
 from moderation import moderation_engine
+from websocket_manager import manager
 
 load_dotenv()
 
@@ -113,8 +114,11 @@ async def poll_once(twitter, redis_client, processed_ids: set):
             pass
     
     if not user_id:
-        # User not logged in
+        await manager.broadcast({"type": "status", "message": "Waiting for user login...", "status": "idle"})
         return
+
+    # Broadcast start of poll
+    await manager.broadcast({"type": "status", "message": f"Polling Twitter for @{username}...", "status": "working"})
 
     all_tweets = []
     
@@ -155,7 +159,9 @@ async def poll_once(twitter, redis_client, processed_ids: set):
             processed_ids.add(tweet_id)
     
     if new_tweets:
-        logger.info(f"Processing {len(new_tweets)} new tweets...")
+        await manager.broadcast({"type": "status", "message": f"Processing {len(new_tweets)} new tweets...", "status": "working"})
+        logger.info(f"Processing {len(new_tweets)} unique new tweets")
+        
         for tweet in new_tweets:
             if moderation_engine.should_process(tweet):
                 try:
@@ -164,6 +170,10 @@ async def poll_once(twitter, redis_client, processed_ids: set):
                     logger.error(f"Error processing tweet {tweet['id']}: {e}")
             else:
                 logger.info(f"Skipping tweet {tweet['id']} (filtered)")
+            
+        await manager.broadcast({"type": "status", "message": f"Processed {len(new_tweets)} tweets", "status": "success"})
+    else:
+        await manager.broadcast({"type": "status", "message": "No new tweets found", "status": "idle"})
 
 
 async def poll_search_query(query: str):

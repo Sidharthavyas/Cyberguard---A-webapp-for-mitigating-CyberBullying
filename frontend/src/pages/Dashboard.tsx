@@ -24,6 +24,16 @@ const Dashboard: React.FC = () => {
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [platformFilter, setPlatformFilter] = useState<string>('all');
     const [activeView, setActiveView] = useState<'feed' | 'platforms' | 'analytics' | 'settings'>('feed');
+    const [pollerStatus, setPollerStatus] = useState<string>("Initializing...");
+
+    // Update status from events
+    if (latestEvent && latestEvent.type === 'status') {
+        // @ts-ignore - Dynamic event type
+        if (latestEvent.message !== pollerStatus) {
+            // @ts-ignore
+            setPollerStatus(latestEvent.message);
+        }
+    }
 
     const handleLogout = async () => {
         setIsLoggingOut(true);
@@ -58,6 +68,9 @@ const Dashboard: React.FC = () => {
                         <h1 className="dashboard-title">
                             CyberGuard
                         </h1>
+                        <div className="poller-status" style={{ fontSize: '0.8rem', color: '#888', marginLeft: '1rem' }}>
+                            {pollerStatus && <span>🔄 {pollerStatus}</span>}
+                        </div>
                         <div className="connection-status">
                             <span className={`status-dot status-${isConnected ? 'success' : 'warning'}`}></span>
                             <span className="status-text">
