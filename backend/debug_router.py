@@ -83,7 +83,7 @@ async def trigger_twitter_fetch():
         }
 
 
-@router.post("/twitter/clear-since")
+@router.api_route("/twitter/clear-since", methods=["GET", "POST"])
 async def clear_since_id():
     """Clear the stored since_id to force re-fetching old mentions."""
     if not redis_client:

@@ -60,6 +60,7 @@ async def poll_mentions():
     while True:
         try:
             cycle_count += 1
+            logger.info(f"Poller tick {cycle_count}")  # Debug log
             await poll_once(twitter, redis_client, processed_ids)
             
             # Log heartbeat if no user found, but don't spam
