@@ -126,7 +126,9 @@ class DiscordPoller(PlatformPoller):
             })
             
             # If message was flagged for deletion, delete it
-            if result["action"] == "delete" and result["deleted"]:
+            # Check action "delete" OR if engine marked it "delete_failed" but we can maybe delete it
+            if result["action"] == "delete":
+                logger.info(f"Attempting to delete Discord message {message['id']}")
                 deleted = await self.client.delete_message(
                     message["channel_id"], 
                     message["id"]
@@ -135,9 +137,12 @@ class DiscordPoller(PlatformPoller):
                 if deleted:
                     logger.warning(f"Deleted Discord message {message['id']}")
                     result["deleted"] = True
+                    # Manually increment deleted metric since engine didn't do it
+                    metrics.increment_deleted(result.get("language", "unknown"))
                 else:
                     logger.error(f"Failed to delete Discord message {message['id']}")
                     result["deleted"] = False
+                    result["action"] = "delete_failed"
             
             # Broadcast to WebSocket clients
             await manager.broadcast(result)

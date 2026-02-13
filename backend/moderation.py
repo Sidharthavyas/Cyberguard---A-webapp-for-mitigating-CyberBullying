@@ -39,8 +39,9 @@ class ModerationEngine:
         """
         tweet_id = tweet.get("id")
         text = tweet.get("text", "")
+        platform = tweet.get("platform", "twitter")
         
-        logger.info(f"Processing tweet {tweet_id}")
+        logger.info(f"Processing {platform} content {tweet_id}")
         
         # Run ML inference
         detector = get_detector()
@@ -68,23 +69,29 @@ class ModerationEngine:
             if confidence >= delete_confidence:
                 # Delete tweet
                 action = "delete"
-                twitter = get_twitter_client()
-                deleted = twitter.delete_tweet(tweet_id)
                 
-                if deleted:
-                    metrics.increment_deleted(language)
-                    logger.warning(f"DELETED tweet {tweet_id} (Bullying, confidence: {confidence:.2f})")
+                # Only attempt deletion here if it's Twitter
+                # Other platforms handle deletion in their poller
+                if platform == "twitter":
+                    twitter = get_twitter_client()
+                    deleted = twitter.delete_tweet(tweet_id)
+                    
+                    if deleted:
+                        metrics.increment_deleted(language)
+                        logger.warning(f"DELETED tweet {tweet_id} (Bullying, confidence: {confidence:.2f})")
+                    else:
+                        logger.error(f"Failed to delete tweet {tweet_id}")
+                        action = "delete_failed"
                 else:
-                    logger.error(f"Failed to delete tweet {tweet_id}")
-                    action = "delete_failed"
+                    logger.info(f"Marked {platform} content {tweet_id} for deletion (handled by poller)")
             else:
                 # Flag for review (lower confidence)
                 action = "flag"
                 metrics.increment_flagged(language)
-                logger.warning(f"FLAGGED tweet {tweet_id} (Bullying, confidence: {confidence:.2f})")
+                logger.warning(f"FLAGGED {platform} content {tweet_id} (Bullying, confidence: {confidence:.2f})")
         else:
             # Safe content
-            logger.info(f"IGNORED tweet {tweet_id} (Safe, confidence: {confidence:.2f})")
+            logger.info(f"IGNORED {platform} content {tweet_id} (Safe, confidence: {confidence:.2f})")
         
         # Prepare event for WebSocket broadcast
         event = {
@@ -97,6 +104,7 @@ class ModerationEngine:
             "bullying_probability": bullying_probability,
             "action": action,
             "deleted": deleted,
+            "platform": platform,
             "primary_label": analysis["primary_label"],
             "secondary_label": analysis["secondary_label"],
             "models_agree": analysis["models_agree"],
