@@ -52,8 +52,8 @@ const PlatformCards: React.FC = () => {
 
     const fetchPlatforms = async () => {
         try {
-            const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-            const response = await fetch(`${BACKEND_URL}/platforms/connected`);
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+            const response = await fetch(`${API_URL}/platforms/connected`);
             const data = await response.json();
 
             // Update platform states based on API response
@@ -69,14 +69,14 @@ const PlatformCards: React.FC = () => {
 
     const handleConnect = (platformId: string) => {
         // Redirect to OAuth
-        const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-        window.location.href = `${BACKEND_URL}/auth/${platformId}/login`;
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        window.location.href = `${API_URL}/auth/${platformId}/login`;
     };
 
     const handleDisconnect = async (platformId: string) => {
         try {
-            const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-            await fetch(`${BACKEND_URL}/platforms/${platformId}`, {
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+            await fetch(`${API_URL}/platforms/${platformId}`, {
                 method: 'DELETE'
             });
 
