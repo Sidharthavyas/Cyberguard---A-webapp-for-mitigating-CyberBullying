@@ -83,8 +83,10 @@ class TwitterClient:
         Args:
             oauth2_access_token: User's OAuth2 bearer token from login
         """
+        # OAuth2 PKCE tokens use the same Bearer header as app tokens.
+        # Twitter distinguishes user vs app tokens server-side.
         self.client = tweepy.Client(
-            access_token=oauth2_access_token,
+            bearer_token=oauth2_access_token,
             wait_on_rate_limit=False
         )
         

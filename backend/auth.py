@@ -267,37 +267,36 @@ async def discord_callback(
             logger.error("State mismatch or expired")
             return RedirectResponse(url=f"{FRONTEND_URL}?error=state_mismatch")
         
-        # Exchange code for token using aiohttp (works better with HF Spaces DNS)
-        logger.info("Exchanging code for Discord token using aiohttp...")
+        # Exchange code for token using httpx (aiohttp has DNS issues on HF Spaces)
+        logger.info("Exchanging code for Discord token using httpx...")
         
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        token_data_payload = {
+            "client_id": DISCORD_CLIENT_ID,
+            "client_secret": DISCORD_CLIENT_SECRET,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": f"{BACKEND_URL}/auth/discord/callback"
+        }
+        
+        async with httpx.AsyncClient(timeout=30) as client:
             # Exchange code for access token
-            token_data_payload = {
-                "client_id": DISCORD_CLIENT_ID,
-                "client_secret": DISCORD_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": f"{BACKEND_URL}/auth/discord/callback"
-            }
-            
-            async with session.post(
+            token_response = await client.post(
                 "https://discord.com/api/oauth2/token",
                 data=token_data_payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
-            ) as token_response:
-                token_response.raise_for_status()
-                token_data = await token_response.json()
-                access_token = token_data["access_token"]
-                logger.info("Successfully got Discord access token")
+            )
+            token_response.raise_for_status()
+            token_data = token_response.json()
+            access_token = token_data["access_token"]
+            logger.info("Successfully got Discord access token")
             
             # Get user info
-            async with session.get(
+            user_response = await client.get(
                 "https://discord.com/api/users/@me",
                 headers={"Authorization": f"Bearer {access_token}"}
-            ) as user_response:
-                user_response.raise_for_status()
-                user_info = await user_response.json()
+            )
+            user_response.raise_for_status()
+            user_info = user_response.json()
             
             user_id = user_info["id"]
             username = user_info["username"]
