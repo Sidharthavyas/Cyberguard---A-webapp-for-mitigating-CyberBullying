@@ -286,7 +286,7 @@ async def discord_callback(
             """Synchronous Discord token exchange + user info fetch."""
             # Exchange code for access token
             token_resp = sync_requests.post(
-                "https://discord.com/api/oauth2/token",
+                "https://discordapp.com/api/oauth2/token",
                 data=token_data_payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=30
@@ -296,7 +296,7 @@ async def discord_callback(
             
             # Get user info
             user_resp = sync_requests.get(
-                "https://discord.com/api/users/@me",
+                "https://discordapp.com/api/users/@me",
                 headers={"Authorization": f"Bearer {t_data['access_token']}"},
                 timeout=30
             )

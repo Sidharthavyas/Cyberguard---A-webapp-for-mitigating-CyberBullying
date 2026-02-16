@@ -53,7 +53,7 @@ async def init_mongodb():
 
 async def _create_indexes():
     """Create indexes for efficient querying."""
-    if not _db:
+    if _db is None:
         return
 
     # moderation_events: unique by platform_id + platform, indexed by timestamp
@@ -95,7 +95,7 @@ async def save_moderation_event(event: Dict[str, Any]) -> bool:
     Returns:
         True if saved, False otherwise
     """
-    if not _db:
+    if _db is None:
         return False
 
     try:
@@ -150,7 +150,7 @@ async def get_moderation_events(
     Returns:
         List of moderation event dicts
     """
-    if not _db:
+    if _db is None:
         return []
 
     try:
@@ -174,7 +174,7 @@ async def get_moderation_events(
 
 async def count_moderation_events(platform: str = "all") -> int:
     """Count total moderation events."""
-    if not _db:
+    if _db is None:
         return 0
     try:
         query: Dict[str, Any] = {}
@@ -199,7 +199,7 @@ async def save_platform_message(message: Dict[str, Any]) -> bool:
     Returns:
         True if saved
     """
-    if not _db:
+    if _db is None:
         return False
 
     try:
@@ -243,7 +243,7 @@ async def is_message_processed(platform_id: str, platform: str) -> bool:
     Returns:
         True if already processed
     """
-    if not _db:
+    if _db is None:
         return False
 
     try:
@@ -261,7 +261,7 @@ async def get_platform_messages(
     platform: str = "all", limit: int = 50, skip: int = 0
 ) -> List[Dict]:
     """Get paginated platform messages."""
-    if not _db:
+    if _db is None:
         return []
 
     try:
@@ -285,7 +285,7 @@ async def get_platform_messages(
 
 async def save_user_session(session_data: Dict[str, Any]) -> bool:
     """Save/update a user session for a platform."""
-    if not _db:
+    if _db is None:
         return False
 
     try:
@@ -307,7 +307,7 @@ async def save_user_session(session_data: Dict[str, Any]) -> bool:
 
 async def get_user_session(platform: str) -> Optional[Dict]:
     """Get stored user session for a platform."""
-    if not _db:
+    if _db is None:
         return None
 
     try:
@@ -326,7 +326,7 @@ async def save_metrics_snapshot(metrics_data: Dict[str, Any]) -> bool:
     Save metrics snapshot to MongoDB.
     Uses a single document with _id='current' that gets upserted.
     """
-    if not _db:
+    if _db is None:
         return False
 
     try:
@@ -347,7 +347,7 @@ async def save_metrics_snapshot(metrics_data: Dict[str, Any]) -> bool:
 
 async def load_metrics_snapshot() -> Optional[Dict]:
     """Load the last metrics snapshot from MongoDB."""
-    if not _db:
+    if _db is None:
         return None
 
     try:
@@ -366,7 +366,7 @@ async def get_aggregate_stats() -> Dict:
     Get aggregate statistics directly from MongoDB collections.
     More accurate than in-memory counters.
     """
-    if not _db:
+    if _db is None:
         return {}
 
     try:
@@ -414,7 +414,7 @@ async def get_aggregate_stats() -> Dict:
 async def close_mongodb():
     """Close MongoDB connection on shutdown."""
     global _client, _db
-    if _client:
+    if _client is not None:
         _client.close()
         _client = None
         _db = None
