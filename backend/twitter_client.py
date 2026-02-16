@@ -84,9 +84,7 @@ class TwitterClient:
             oauth2_access_token: User's OAuth2 bearer token from login
         """
         self.client = tweepy.Client(
-            oauth2_access_token,
-            consumer_key=self.client_id,
-            consumer_secret=self.client_secret,
+            access_token=oauth2_access_token,
             wait_on_rate_limit=False
         )
         
