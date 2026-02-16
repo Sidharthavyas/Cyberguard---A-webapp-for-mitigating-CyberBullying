@@ -283,27 +283,79 @@ async def discord_callback(
         }
         
         def _do_discord_exchange():
-            """Synchronous Discord token exchange + user info fetch."""
-            # Exchange code for access token
-            token_resp = sync_requests.post(
-                "https://discordapp.com/api/oauth2/token",
-                data=token_data_payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=30
-            )
-            token_resp.raise_for_status()
-            t_data = token_resp.json()
+            """
+            Synchronous Discord token exchange + user info fetch.
+            Uses DNS-over-HTTPS (Cloudflare 1.1.1.1) to resolve discord.com
+            because HF Spaces OS-level DNS can't resolve it.
+            """
+            import socket
+            import http.client
+            import ssl as _ssl
             
-            # Get user info
-            user_resp = sync_requests.get(
-                "https://discordapp.com/api/users/@me",
-                headers={"Authorization": f"Bearer {t_data['access_token']}"},
-                timeout=30
-            )
-            user_resp.raise_for_status()
-            u_info = user_resp.json()
+            # Step 1: Resolve discord.com via Cloudflare DNS-over-HTTPS
+            # We connect to 1.1.1.1 by IP so no DNS resolution is needed
+            discord_ip = None
+            for dns_ip in ("1.1.1.1", "1.0.0.1"):
+                try:
+                    ctx = _ssl.create_default_context()
+                    conn = http.client.HTTPSConnection(dns_ip, 443, timeout=5, context=ctx)
+                    conn.request(
+                        "GET",
+                        "/dns-query?name=discord.com&type=A",
+                        headers={"Accept": "application/dns-json"}
+                    )
+                    resp = conn.getresponse()
+                    data = json.loads(resp.read())
+                    conn.close()
+                    for answer in data.get("Answer", []):
+                        if answer.get("type") == 1:  # A record
+                            discord_ip = answer["data"]
+                            break
+                    if discord_ip:
+                        break
+                except Exception as e:
+                    logger.warning(f"DoH resolution via {dns_ip} failed: {e}")
             
-            return t_data, u_info
+            if not discord_ip:
+                raise Exception("Could not resolve discord.com via DNS-over-HTTPS")
+            
+            logger.info(f"Resolved discord.com via DoH → {discord_ip}")
+            
+            # Step 2: Temporarily patch socket.getaddrinfo so requests uses our resolved IP
+            # This keeps the URL as discord.com (for correct TLS SNI/Host header)
+            _original_getaddrinfo = socket.getaddrinfo
+            
+            def _patched_getaddrinfo(host, port, *args, **kwargs):
+                if host in ("discord.com", "discordapp.com"):
+                    # Resolve our known IP instead
+                    return _original_getaddrinfo(discord_ip, port, *args, **kwargs)
+                return _original_getaddrinfo(host, port, *args, **kwargs)
+            
+            socket.getaddrinfo = _patched_getaddrinfo
+            try:
+                # Exchange code for access token
+                token_resp = sync_requests.post(
+                    "https://discord.com/api/oauth2/token",
+                    data=token_data_payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=30
+                )
+                token_resp.raise_for_status()
+                t_data = token_resp.json()
+                
+                # Get user info
+                user_resp = sync_requests.get(
+                    "https://discord.com/api/users/@me",
+                    headers={"Authorization": f"Bearer {t_data['access_token']}"},
+                    timeout=30
+                )
+                user_resp.raise_for_status()
+                u_info = user_resp.json()
+                
+                return t_data, u_info
+            finally:
+                # Always restore original DNS resolution
+                socket.getaddrinfo = _original_getaddrinfo
         
         # Run synchronous requests in thread pool to avoid blocking event loop
         token_data, user_info = await asyncio.to_thread(_do_discord_exchange)
