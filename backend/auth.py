@@ -267,8 +267,12 @@ async def discord_callback(
             logger.error("State mismatch or expired")
             return RedirectResponse(url=f"{FRONTEND_URL}?error=state_mismatch")
         
-        # Exchange code for token using httpx (aiohttp has DNS issues on HF Spaces)
-        logger.info("Exchanging code for Discord token using httpx...")
+        # Use synchronous requests via thread pool — async clients (aiohttp, httpx)
+        # fail DNS resolution for discord.com on HF Spaces, but sync requests works.
+        import requests as sync_requests
+        import asyncio
+        
+        logger.info("Exchanging code for Discord token using sync requests...")
         
         token_data_payload = {
             "client_id": DISCORD_CLIENT_ID,
@@ -278,80 +282,88 @@ async def discord_callback(
             "redirect_uri": f"{BACKEND_URL}/auth/discord/callback"
         }
         
-        async with httpx.AsyncClient(timeout=30) as client:
+        def _do_discord_exchange():
+            """Synchronous Discord token exchange + user info fetch."""
             # Exchange code for access token
-            token_response = await client.post(
+            token_resp = sync_requests.post(
                 "https://discord.com/api/oauth2/token",
                 data=token_data_payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=30
             )
-            token_response.raise_for_status()
-            token_data = token_response.json()
-            access_token = token_data["access_token"]
-            logger.info("Successfully got Discord access token")
+            token_resp.raise_for_status()
+            t_data = token_resp.json()
             
             # Get user info
-            user_response = await client.get(
+            user_resp = sync_requests.get(
                 "https://discord.com/api/users/@me",
-                headers={"Authorization": f"Bearer {access_token}"}
+                headers={"Authorization": f"Bearer {t_data['access_token']}"},
+                timeout=30
             )
-            user_response.raise_for_status()
-            user_info = user_response.json()
+            user_resp.raise_for_status()
+            u_info = user_resp.json()
             
-            user_id = user_info["id"]
-            username = user_info["username"]
+            return t_data, u_info
+        
+        # Run synchronous requests in thread pool to avoid blocking event loop
+        token_data, user_info = await asyncio.to_thread(_do_discord_exchange)
+        access_token = token_data["access_token"]
+        logger.info("Successfully got Discord access token")
+        
+        user_id = user_info["id"]
+        username = user_info["username"]
+        
+        # Store in Redis
+        if redis_client:
+            platform_data = {
+                "access_token": access_token,
+                "refresh_token": token_data.get("refresh_token"),
+                "user_id": user_id,
+                "username": username,
+                "platform": "discord"
+            }
             
-            # Store in Redis
-            if redis_client:
-                platform_data = {
-                    "access_token": access_token,
-                    "refresh_token": token_data.get("refresh_token"),
-                    "user_id": user_id,
-                    "username": username,
-                    "platform": "discord"
-                }
-                
-                redis_client.setex(
-                    f"discord_token:{user_id}",
-                    30 * 24 * 60 * 60,  # 30 days
-                    json.dumps(platform_data)
-                )
-                
-                # Per-platform session so Twitter login doesn't get overwritten
-                session_data = {
-                    "user_id": str(user_id),
-                    "username": username,
-                    "platform": "discord",
-                    "access_token": access_token
-                }
-                redis_client.set("session:discord", json.dumps(session_data))
-                redis_client.set("session:current_user", json.dumps(session_data))
-                
-                logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
-                
-                # Start Discord Poller immediately
-                try:
-                    from unified_poller import add_platform
-                    bot_token = os.getenv("DISCORD_BOT_TOKEN")
-                    if bot_token:
-                        await add_platform("discord", {
-                            "bot_token": bot_token,
-                            "guild_ids": [] # Monitor all guilds bot is in
-                        })
-                    else:
-                        logger.warning("DISCORD_BOT_TOKEN not found in env - cannot start Discord poller automatically")
-                except Exception as e:
-                    logger.error(f"Failed to auto-start Discord poller: {e}")
-            
-            return RedirectResponse(
-                url=(
-                    f"{FRONTEND_URL}/callback"
-                    f"?platform=discord"
-                    f"&access_token={access_token}"
-                    f"&user_id={user_id}"
-                    f"&username={username}"
-                )
+            redis_client.setex(
+                f"discord_token:{user_id}",
+                30 * 24 * 60 * 60,  # 30 days
+                json.dumps(platform_data)
             )
+            
+            # Per-platform session so Twitter login doesn't get overwritten
+            session_data = {
+                "user_id": str(user_id),
+                "username": username,
+                "platform": "discord",
+                "access_token": access_token
+            }
+            redis_client.set("session:discord", json.dumps(session_data))
+            redis_client.set("session:current_user", json.dumps(session_data))
+            
+            logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
+            
+            # Start Discord Poller immediately
+            try:
+                from unified_poller import add_platform
+                bot_token = os.getenv("DISCORD_BOT_TOKEN")
+                if bot_token:
+                    await add_platform("discord", {
+                        "bot_token": bot_token,
+                        "guild_ids": [] # Monitor all guilds bot is in
+                    })
+                else:
+                    logger.warning("DISCORD_BOT_TOKEN not found in env - cannot start Discord poller automatically")
+            except Exception as e:
+                logger.error(f"Failed to auto-start Discord poller: {e}")
+        
+        return RedirectResponse(
+            url=(
+                f"{FRONTEND_URL}/callback"
+                f"?platform=discord"
+                f"&access_token={access_token}"
+                f"&user_id={user_id}"
+                f"&username={username}"
+            )
+        )
     
     except Exception as e:
         logger.error(f"Discord callback error: {e}", exc_info=True)
