@@ -11,6 +11,7 @@ from models import get_detector
 from twitter_client import get_twitter_client
 from metrics import metrics
 from websocket_manager import manager
+import database as db
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,10 @@ class ModerationEngine:
         
         # Broadcast to all connected clients
         await manager.broadcast(event)
+        
+        # Persist to MongoDB
+        await db.save_platform_message(tweet)
+        await db.save_moderation_event(event)
         
         return event
     

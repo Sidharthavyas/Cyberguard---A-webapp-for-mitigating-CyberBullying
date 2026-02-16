@@ -41,7 +41,7 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ latestEvent }) => {
 
     useEffect(() => {
         fetchStats();
-        const interval = setInterval(fetchStats, 5000);
+        const interval = setInterval(fetchStats, 15000);  // Poll every 15s instead of 5s
         return () => clearInterval(interval);
     }, []);
 

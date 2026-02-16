@@ -29,6 +29,7 @@ const CallbackPage: React.FC = () => {
             const accessToken = searchParams.get('access_token');
             const userId = searchParams.get('user_id');
             const username = searchParams.get('username');
+            const platform = searchParams.get('platform') || 'twitter';
 
             if (!accessToken || !userId || !username) {
                 setStatus('error');
@@ -37,10 +38,21 @@ const CallbackPage: React.FC = () => {
                 return;
             }
 
-            // Store in localStorage
-            localStorage.setItem('twitter_access_token', accessToken);
-            localStorage.setItem('twitter_user_id', userId);
-            localStorage.setItem('twitter_username', username);
+            // Store with platform-specific keys
+            localStorage.setItem(`${platform}_access_token`, accessToken);
+            localStorage.setItem(`${platform}_user_id`, userId);
+            localStorage.setItem(`${platform}_username`, username);
+
+            // Also store generic keys for ProtectedRoute compatibility
+            // (twitter_ keys stay as default for backward compat)
+            if (platform !== 'twitter') {
+                // Ensure a generic token exists so ProtectedRoute lets us through
+                if (!localStorage.getItem('twitter_access_token')) {
+                    localStorage.setItem('twitter_access_token', accessToken);
+                    localStorage.setItem('twitter_user_id', userId);
+                    localStorage.setItem('twitter_username', username);
+                }
+            }
 
             setStatus('success');
             setMessage(`Welcome, @${username}! Redirecting to dashboard...`);

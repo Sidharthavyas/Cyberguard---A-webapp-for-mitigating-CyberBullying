@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from twitter_client import get_twitter_client
 from moderation import moderation_engine
 from websocket_manager import manager
+import database as db
 
 load_dotenv()
 
@@ -99,20 +100,22 @@ async def poll_once(twitter, redis_client, processed_ids: set):
     username = None
     
     if redis_client:
-        session_data = redis_client.get("session:current_user")
+        # Read from per-platform key first, fallback to current_user
+        session_data = redis_client.get("session:twitter")
+        if not session_data:
+            session_data = redis_client.get("session:current_user")
+        
         if session_data:
             user_data = json.loads(session_data)
-            username = user_data.get("username")
-            user_id = user_data.get("user_id")
-            
-            if username and user_id:
-                # logger.info(f"Monitoring @{username}'s account ({user_id})")
-                pass
+            # Only use this session if it's a Twitter session
+            if user_data.get("platform", "twitter") == "twitter":
+                username = user_data.get("username")
+                user_id = user_data.get("user_id")
+                
+                if not (username and user_id):
+                    logger.warning("Incomplete Twitter user session data")
             else:
-                logger.warning("Incomplete user session data")
-        else:
-            # logger.info("No user session in Redis - waiting for login")
-            pass
+                logger.debug("Current session is not Twitter - waiting for Twitter login")
     
     if not user_id:
         await manager.broadcast({"type": "status", "message": "Waiting for user login...", "status": "idle"})
@@ -151,13 +154,18 @@ async def poll_once(twitter, redis_client, processed_ids: set):
             else:
                 logger.error(f"Error searching tweets: {e}")
     
-    # Deduplicate and process
+    # Deduplicate: check in-memory set first, then MongoDB
     new_tweets = []
     for tweet in all_tweets:
         tweet_id = tweet.get("id")
-        if tweet_id and tweet_id not in processed_ids:
-            new_tweets.append(tweet)
-            processed_ids.add(tweet_id)
+        if not tweet_id or tweet_id in processed_ids:
+            continue
+        # Check MongoDB for tweets processed in previous sessions
+        if db.is_connected() and await db.is_message_processed(str(tweet_id), "twitter"):
+            processed_ids.add(tweet_id)  # Cache locally
+            continue
+        new_tweets.append(tweet)
+        processed_ids.add(tweet_id)
     
     if new_tweets:
         await manager.broadcast({"type": "status", "message": f"Processing {len(new_tweets)} new tweets...", "status": "working"})

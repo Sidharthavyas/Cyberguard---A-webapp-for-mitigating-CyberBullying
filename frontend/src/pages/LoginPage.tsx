@@ -18,11 +18,10 @@ const LoginPage: React.FC = () => {
         // Use VITE_API_URL for production (Hugging Face) or localhost for dev
         const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-        // Discord uses Vercel API route (bypasses HF Spaces DNS restriction)
-        // Twitter uses HF Spaces backend directly
+        // Both platforms go through the backend auth routes
         const authUrls: Record<Platform, string> = {
             twitter: `${BACKEND_URL}/auth/twitter/login`,
-            discord: `/api/discord/login`  // Uses Vercel serverless function
+            discord: `${BACKEND_URL}/auth/discord/login`
         };
 
         window.location.href = authUrls[selectedPlatform];

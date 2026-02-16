@@ -10,7 +10,9 @@ from discord_client import get_discord_client
 from platform_manager import PlatformPoller
 from models import get_detector
 from moderation import moderation_engine
+from metrics import metrics
 from websocket_manager import manager
+import database as db
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +75,17 @@ class DiscordPoller(PlatformPoller):
                 logger.debug("No Discord messages found")
                 return
             
-            # Process new messages only
-            new_messages = [
-                msg for msg in messages 
-                if msg["id"] not in self.processed_messages
-            ]
+            # Process new messages only (in-memory check first)
+            new_messages = []
+            for msg in messages:
+                msg_id = msg["id"]
+                if msg_id in self.processed_messages:
+                    continue
+                # Check MongoDB for cross-restart deduplication
+                if db.is_connected() and await db.is_message_processed(str(msg_id), "discord"):
+                    self.processed_messages.add(msg_id)
+                    continue
+                new_messages.append(msg)
             
             if not new_messages:
                 logger.debug("No new Discord messages")
@@ -146,6 +154,10 @@ class DiscordPoller(PlatformPoller):
             
             # Broadcast to WebSocket clients
             await manager.broadcast(result)
+            
+            # Persist to MongoDB
+            await db.save_platform_message(message)
+            await db.save_moderation_event(result)
         
         except Exception as e:
             logger.error(f"Error moderating Discord message {message['id']}: {e}")

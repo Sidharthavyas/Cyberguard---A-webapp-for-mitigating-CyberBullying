@@ -2,11 +2,11 @@
  * Multi-Platform Dashboard with Sidebar, Platform Cards, and Feed Filter
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { authAPI } from '../services/api';
+import { authAPI, historyAPI } from '../services/api';
 import TweetCard from '../components/TweetCard';
 import MetricsPanel from '../components/MetricsPanel';
 import ThemeToggle from '../components/ThemeToggle';
@@ -19,12 +19,43 @@ import './Dashboard.css';
 const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const { isConnected, events, latestEvent, error } = useWebSocket();
-    const username = localStorage.getItem('twitter_username') || 'User';
-    const userId = localStorage.getItem('twitter_user_id');
+    const username = localStorage.getItem('twitter_username') || localStorage.getItem('discord_username') || 'User';
+    const userId = localStorage.getItem('twitter_user_id') || localStorage.getItem('discord_user_id');
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [platformFilter, setPlatformFilter] = useState<string>('all');
     const [activeView, setActiveView] = useState<'feed' | 'platforms' | 'analytics' | 'settings'>('feed');
     const [pollerStatus, setPollerStatus] = useState<string>("Initializing...");
+    const [historicalEvents, setHistoricalEvents] = useState<any[]>([]);
+
+    // Load historical events from MongoDB on mount
+    useEffect(() => {
+        const loadHistory = async () => {
+            try {
+                const data = await historyAPI.getEvents('all', 100);
+                if (data.events && data.events.length > 0) {
+                    setHistoricalEvents(data.events);
+                }
+            } catch (err) {
+                console.warn('Could not load history:', err);
+            }
+        };
+        loadHistory();
+    }, []);
+
+    // Merge live events with historical (live events take priority, dedup by platform_id)
+    const allEvents = (() => {
+        const liveIds = new Set(events.map((e: any) => e.tweet_id || e.id));
+        const dedupedHistory = historicalEvents.filter(
+            (h: any) => !liveIds.has(h.platform_id) && !liveIds.has(h.tweet_id)
+        );
+        // Map historical events to match TweetCard format
+        const mappedHistory = dedupedHistory.map((h: any) => ({
+            ...h,
+            tweet_id: h.platform_id || h.tweet_id,
+            id: h.platform_id || h.id,
+        }));
+        return [...events, ...mappedHistory];
+    })();
 
     // Update status from events
     // Update status from events
@@ -45,9 +76,13 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
+            // Clear all platform keys
             localStorage.removeItem('twitter_access_token');
             localStorage.removeItem('twitter_user_id');
             localStorage.removeItem('twitter_username');
+            localStorage.removeItem('discord_access_token');
+            localStorage.removeItem('discord_user_id');
+            localStorage.removeItem('discord_username');
             navigate('/');
         }
     };
@@ -171,7 +206,7 @@ const Dashboard: React.FC = () => {
                         </div>
 
                         <AnimatePresence mode="popLayout">
-                            {events.filter(e => platformFilter === 'all' || e.platform === platformFilter || (platformFilter === 'twitter' && !e.platform)).length === 0 ? (
+                            {allEvents.filter(e => platformFilter === 'all' || e.platform === platformFilter || (platformFilter === 'twitter' && !e.platform)).length === 0 ? (
                                 <motion.div
                                     className="empty-state"
                                     initial={{ opacity: 0 }}
@@ -188,7 +223,7 @@ const Dashboard: React.FC = () => {
                                 </motion.div>
                             ) : (
                                 <div className="feed-grid">
-                                    {events
+                                    {allEvents
                                         .filter(e => platformFilter === 'all' || e.platform === platformFilter || (platformFilter === 'twitter' && !e.platform))
                                         .map((event, index) => (
                                             <TweetCard

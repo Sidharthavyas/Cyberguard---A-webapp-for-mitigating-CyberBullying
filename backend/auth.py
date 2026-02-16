@@ -175,7 +175,9 @@ async def twitter_callback(
                 "platform": "twitter"
             }
             redis_client.set(f"user:{user_id}", json.dumps(token_data))
-            redis_client.set(f"session:current_user", json.dumps(token_data))  # Simple session for demo
+            # Per-platform session so Discord login doesn't overwrite Twitter
+            redis_client.set("session:twitter", json.dumps(token_data))
+            redis_client.set("session:current_user", json.dumps(token_data))
             
             # Store with 90-day expiration (Twitter token lifetime)
             redis_client.setex(
@@ -316,13 +318,14 @@ async def discord_callback(
                     json.dumps(platform_data)
                 )
                 
-                # Set active session so poller knows who is logged in
+                # Per-platform session so Twitter login doesn't get overwritten
                 session_data = {
                     "user_id": str(user_id),
                     "username": username,
                     "platform": "discord",
                     "access_token": access_token
                 }
+                redis_client.set("session:discord", json.dumps(session_data))
                 redis_client.set("session:current_user", json.dumps(session_data))
                 
                 logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")

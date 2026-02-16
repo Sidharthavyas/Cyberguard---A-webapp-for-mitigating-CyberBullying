@@ -6,6 +6,7 @@ Handles authentication, mention polling, and tweet deletion.
 import tweepy
 import os
 import logging
+import urllib.parse
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import redis
@@ -17,12 +18,17 @@ class TwitterClient:
     """Twitter API v2 client for free tier operations."""
     
     def __init__(self):
-        self.bearer_token = os.getenv("TWITTER_BEARER_TOKEN")
+        # URL-decode tokens in case they contain encoded chars (%2B, %3D, etc.)
+        raw_bearer = os.getenv("TWITTER_BEARER_TOKEN", "")
+        self.bearer_token = urllib.parse.unquote(raw_bearer) if raw_bearer else None
         self.client_id = os.getenv("TWITTER_CONSUMER_KEY")
         self.client_secret = os.getenv("TWITTER_CONSUMER_SECRET")
         
         if not all([self.bearer_token, self.client_id, self.client_secret]):
+            logger.error("Missing Twitter API credentials. Check env vars: TWITTER_BEARER_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET")
             raise ValueError("Missing Twitter API credentials")
+        
+        logger.info(f"Bearer token loaded (length: {len(self.bearer_token)}, starts with: {self.bearer_token[:20]}...)")
         
         # Initialize API v2 client
         self.client = tweepy.Client(

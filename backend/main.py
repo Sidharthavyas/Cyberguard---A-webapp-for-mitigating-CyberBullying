@@ -11,9 +11,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Import routers and modules
 from auth import router as auth_router
@@ -44,6 +44,23 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to load ML models: {e}")
         raise
     
+    # Initialize MongoDB
+    import database as db
+    try:
+        connected = await db.init_mongodb()
+        if connected:
+            # Load persisted metrics
+            snapshot = await db.load_metrics_snapshot()
+            if snapshot:
+                metrics.load_from_snapshot(snapshot)
+                logger.info("✓ Metrics restored from MongoDB")
+            else:
+                logger.info("No metrics snapshot in MongoDB — starting fresh")
+        else:
+            logger.warning("MongoDB not available — running without persistence")
+    except Exception as e:
+        logger.error(f"MongoDB init error: {e}")
+    
     # Start background pollers (Twitter + dynamic platforms)
     from poller import poll_mentions
     from unified_poller import start_platform_pollers
@@ -73,6 +90,12 @@ async def lifespan(app: FastAPI):
     from unified_poller import shutdown_all_pollers
     await shutdown_all_pollers()
     logger.info("✓ All pollers stopped")
+    
+    # Flush metrics and close MongoDB
+    import database as db
+    await metrics.flush_to_mongodb()
+    await db.close_mongodb()
+    logger.info("✓ MongoDB closed")
 
 
 # Create FastAPI app
@@ -330,6 +353,79 @@ async def get_unified_feed(platform: str = "all", limit: int = 100):
         "message": "Feed endpoint - to be implemented with actual feed data",
         "stats": metrics.get_stats()
     }
+
+
+# ============= HISTORY & PERSISTENCE APIS =============
+
+@app.get("/history")
+async def get_history(
+    platform: str = Query("all", description="Filter by platform: all, twitter, discord"),
+    action: Optional[str] = Query(None, description="Filter by action: flag, delete, ignore"),
+    limit: int = Query(50, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+):
+    """
+    Get paginated moderation event history from MongoDB.
+    Survives server restarts.
+    """
+    import database as db
+    if not db.is_connected():
+        return {"events": [], "total": 0, "message": "MongoDB not connected"}
+    
+    events = await db.get_moderation_events(
+        platform=platform, limit=limit, skip=skip, action_filter=action
+    )
+    total = await db.count_moderation_events(platform=platform)
+    
+    # Convert datetime objects to strings for JSON serialization
+    for event in events:
+        for key, value in event.items():
+            if hasattr(value, 'isoformat'):
+                event[key] = value.isoformat()
+    
+    return {"events": events, "total": total, "platform": platform}
+
+
+@app.get("/messages")
+async def get_messages(
+    platform: str = Query("all", description="Filter by platform"),
+    limit: int = Query(50, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+):
+    """
+    Get raw platform messages (tweets, Discord chats).
+    """
+    import database as db
+    if not db.is_connected():
+        return {"messages": [], "message": "MongoDB not connected"}
+    
+    messages = await db.get_platform_messages(
+        platform=platform, limit=limit, skip=skip
+    )
+    
+    for msg in messages:
+        for key, value in msg.items():
+            if hasattr(value, 'isoformat'):
+                msg[key] = value.isoformat()
+    
+    return {"messages": messages, "platform": platform}
+
+
+@app.get("/history/stats")
+async def get_history_stats():
+    """
+    Get aggregate statistics from MongoDB (persistent, accurate).
+    """
+    import database as db
+    if not db.is_connected():
+        # Fallback to in-memory
+        return metrics.get_stats()
+    
+    stats = await db.get_aggregate_stats()
+    if not stats:
+        return metrics.get_stats()
+    
+    return stats
 
 
 if __name__ == "__main__":

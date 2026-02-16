@@ -8,11 +8,11 @@ import LoginPage from './pages/LoginPage';
 import CallbackPage from './pages/CallbackPage';
 import Dashboard from './pages/Dashboard';
 
-// Protected route wrapper
+// Protected route wrapper - checks for any platform's auth token
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const token = localStorage.getItem('twitter_access_token');
+  const hasToken = localStorage.getItem('twitter_access_token') || localStorage.getItem('discord_access_token');
 
-  if (!token) {
+  if (!hasToken) {
     return <Navigate to="/" replace />;
   }
 
