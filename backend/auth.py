@@ -32,9 +32,9 @@ TWITTER_CLIENT_SECRET = os.getenv("TWITTER_CLIENT_SECRET")
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 
-# URLs
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# URLs — on HF Spaces, frontend is served from the same origin as backend
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+FRONTEND_URL = os.getenv("FRONTEND_URL", BACKEND_URL)
 
 # Upstash Redis for token storage
 REDIS_URL = os.getenv("REDIS_URL")
