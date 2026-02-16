@@ -34,16 +34,6 @@ async def poll_mentions():
     
     twitter = get_twitter_client()
     
-    # Load OAuth 1.0a credentials from environment for auto-delete
-    access_token = os.getenv("TWITTER_ACCESS_TOKEN")
-    access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-    
-    if access_token and access_token_secret:
-        logger.info("Found OAuth 1.0a credentials - enabling auto-delete")
-        twitter.set_user_credentials(access_token, access_token_secret)
-    else:
-        logger.warning("No OAuth 1.0a credentials - deletion will be disabled")
-    
     # Redis setup for session retrieval
     import redis
     import json
@@ -55,22 +45,61 @@ async def poll_mentions():
     else:
         logger.warning("No Redis URL - cannot load user session")
 
+    # Track whether we've authenticated with user token
+    user_authenticated = False
+
+    # Try to load OAuth2 user token from Redis (set during login)
+    if redis_client:
+        session_data = redis_client.get("session:twitter")
+        if session_data:
+            user_data = json.loads(session_data)
+            oauth2_token = user_data.get("access_token")
+            if oauth2_token:
+                logger.info("Found OAuth2 user token in Redis — authenticating...")
+                if twitter.set_oauth2_user_token(oauth2_token):
+                    user_authenticated = True
+                    logger.info("✓ Poller using OAuth2 user token for API calls")
+    
+    # Fallback: Load OAuth 1.0a credentials from .env for auto-delete
+    if not user_authenticated:
+        access_token = os.getenv("TWITTER_ACCESS_TOKEN")
+        access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+        
+        if access_token and access_token_secret:
+            logger.info("Trying OAuth 1.0a credentials from env...")
+            twitter.set_user_credentials(access_token, access_token_secret)
+        else:
+            logger.warning("No OAuth credentials available - will retry after user login")
+
     processed_ids = set()  # Track processed tweet IDs to avoid duplicates
     cycle_count = 0
     
     while True:
         try:
             cycle_count += 1
-            logger.info(f"Poller tick {cycle_count}")  # Debug log
+            logger.info(f"Poller tick {cycle_count}")
+
+            # Re-check for OAuth2 user token if not yet authenticated
+            # (user may log in after poller starts)
+            if not user_authenticated and redis_client:
+                session_data = redis_client.get("session:twitter")
+                if session_data:
+                    user_data = json.loads(session_data)
+                    oauth2_token = user_data.get("access_token")
+                    if oauth2_token:
+                        logger.info("User logged in! Loading OAuth2 token...")
+                        if twitter.set_oauth2_user_token(oauth2_token):
+                            user_authenticated = True
+                            logger.info("✓ Poller now using OAuth2 user token")
+
             await poll_once(twitter, redis_client, processed_ids)
             
             # Log heartbeat if no user found, but don't spam
-            if cycle_count % 12 == 1:  # Every ~5 minutes (12 * 25s)
-                # Check directly here to log message
+            if cycle_count % 12 == 1:
                 if redis_client:
-                    session = redis_client.get("session:current_user")
+                    session = redis_client.get("session:twitter")
                     if not session:
-                        logger.info(f"Poller heartbeat: Accessing Redis OK, but no 'session:current_user' found. Waiting for login...")
+                        logger.info(f"Poller heartbeat: no 'session:twitter' found. Waiting for login...")
             
             # Limit memory usage - keep only last 1000 IDs
             if len(processed_ids) > 1000:

@@ -51,7 +51,7 @@ class TwitterClient:
     
     def set_user_credentials(self, access_token: str, access_token_secret: str):
         """
-        Set user-specific OAuth credentials for tweet deletion.
+        Set user-specific OAuth 1.0a credentials for tweet deletion.
         
         Args:
             access_token: User's OAuth access token
@@ -63,10 +63,9 @@ class TwitterClient:
             consumer_secret=self.client_secret,
             access_token=access_token,
             access_token_secret=access_token_secret,
-            wait_on_rate_limit=False  # Don't block on rate limits
+            wait_on_rate_limit=False
         )
         
-        # Get authenticated user ID
         try:
             me = self.client.get_me()
             if me.data:
@@ -74,6 +73,35 @@ class TwitterClient:
                 logger.info(f"Authenticated as user ID: {self.user_id}")
         except Exception as e:
             logger.error(f"Failed to get user info: {e}")
+    
+    def set_oauth2_user_token(self, oauth2_access_token: str):
+        """
+        Set user's OAuth2 access token (obtained via login flow).
+        This is the preferred auth method — the bearer token is app-only
+        and won't work for user-context endpoints on Free tier.
+        
+        Args:
+            oauth2_access_token: User's OAuth2 bearer token from login
+        """
+        self.client = tweepy.Client(
+            oauth2_access_token,
+            consumer_key=self.client_id,
+            consumer_secret=self.client_secret,
+            wait_on_rate_limit=False
+        )
+        
+        try:
+            me = self.client.get_me()
+            if me and me.data:
+                self.user_id = me.data.id
+                logger.info(f"✓ OAuth2 user auth successful — user: {me.data.username} (ID: {self.user_id})")
+                return True
+            else:
+                logger.error("OAuth2 user auth: get_me returned no data")
+                return False
+        except Exception as e:
+            logger.error(f"OAuth2 user auth failed: {e}")
+            return False
     
     def get_recent_mentions(self, max_results: int = 10, user_id: str = None) -> List[Dict[str, Any]]:
         """
