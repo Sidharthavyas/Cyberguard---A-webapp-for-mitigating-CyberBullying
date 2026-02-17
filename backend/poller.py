@@ -47,6 +47,7 @@ async def poll_mentions():
 
     # Track whether we've authenticated with user token
     user_authenticated = False
+    current_token = None  # Track current token to detect re-login
 
     # Try to load OAuth2 user token from Redis (set during login)
     if redis_client:
@@ -58,6 +59,7 @@ async def poll_mentions():
                 logger.info("Found OAuth2 user token in Redis — authenticating...")
                 if twitter.set_oauth2_user_token(oauth2_token):
                     user_authenticated = True
+                    current_token = oauth2_token
                     logger.info("✓ Poller using OAuth2 user token for API calls")
     
     # Fallback: Load OAuth 1.0a credentials from .env for auto-delete
@@ -92,18 +94,19 @@ async def poll_mentions():
 
             logger.info(f"Poller tick {cycle_count}")
 
-            # Re-check for OAuth2 user token if not yet authenticated
-            # (user may log in after poller starts)
-            if not user_authenticated and redis_client:
+            # Always check for latest OAuth2 token from Redis
+            # (user may re-login and get a new token at any time)
+            if redis_client:
                 session_data = redis_client.get("session:twitter")
                 if session_data:
                     user_data = json.loads(session_data)
                     oauth2_token = user_data.get("access_token")
-                    if oauth2_token:
-                        logger.info("User logged in! Loading OAuth2 token...")
+                    if oauth2_token and oauth2_token != current_token:
+                        logger.info("New OAuth2 token detected — re-authenticating...")
                         if twitter.set_oauth2_user_token(oauth2_token):
+                            current_token = oauth2_token
                             user_authenticated = True
-                            logger.info("✓ Poller now using OAuth2 user token")
+                            logger.info("✓ Poller refreshed OAuth2 user token")
 
             await poll_once(twitter, redis_client, processed_ids)
             
