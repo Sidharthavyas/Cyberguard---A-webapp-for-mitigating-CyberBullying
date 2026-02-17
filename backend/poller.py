@@ -77,6 +77,19 @@ async def poll_mentions():
     while True:
         try:
             cycle_count += 1
+
+            # If active user is on Discord, skip Twitter polling entirely
+            if redis_client:
+                current_session = redis_client.get("session:current_user")
+                if current_session:
+                    current_data = json.loads(current_session)
+                    if current_data.get("platform") == "discord":
+                        # Discord user is active — no need to poll Twitter
+                        if cycle_count % 12 == 1:
+                            logger.debug("Active session is Discord — Twitter poller sleeping")
+                        await asyncio.sleep(POLL_INTERVAL * 5)  # Sleep 2+ min
+                        continue
+
             logger.info(f"Poller tick {cycle_count}")
 
             # Re-check for OAuth2 user token if not yet authenticated

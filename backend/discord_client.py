@@ -2,16 +2,82 @@
 Discord client for CyberGuard - Moderate Discord server messages.
 Uses Discord REST API (HTTP) — no gateway bot connection needed.
 Works inside FastAPI's async event loop without blocking.
+
+Includes DNS-over-HTTPS (Cloudflare) for HF Spaces where discord.com
+cannot be resolved via normal OS-level DNS.
 """
 
 import os
+import ssl
+import socket
 import logging
+import http.client
+import json as _json
 import aiohttp
 from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
 
 DISCORD_API = "https://discord.com/api/v10"
+
+
+def _resolve_discord_ip() -> Optional[str]:
+    """
+    Resolve discord.com via Cloudflare DNS-over-HTTPS (1.1.1.1).
+    HF Spaces OS-level DNS can't resolve discord.com, so we manually
+    query Cloudflare's DoH endpoint by IP (no DNS needed for that).
+    """
+    for dns_ip in ("1.1.1.1", "1.0.0.1"):
+        try:
+            ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection(dns_ip, 443, timeout=5, context=ctx)
+            conn.request(
+                "GET",
+                "/dns-query?name=discord.com&type=A",
+                headers={"Accept": "application/dns-json"},
+            )
+            resp = conn.getresponse()
+            data = _json.loads(resp.read())
+            conn.close()
+
+            for answer in data.get("Answer", []):
+                if answer.get("type") == 1:  # A record
+                    ip = answer["data"]
+                    logger.info(f"Resolved discord.com via DoH ({dns_ip}) → {ip}")
+                    return ip
+        except Exception as e:
+            logger.warning(f"DoH via {dns_ip} failed: {e}")
+
+    return None
+
+
+class _DiscordDNSResolver(aiohttp.abc.AbstractResolver):
+    """
+    Custom aiohttp resolver that uses a pre-resolved IP for discord.com.
+    Falls back to normal DNS for everything else.
+    """
+
+    def __init__(self, discord_ip: str):
+        self._discord_ip = discord_ip
+
+    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET):
+        if host in ("discord.com", "discordapp.com"):
+            return [
+                {
+                    "hostname": host,
+                    "host": self._discord_ip,
+                    "port": port,
+                    "family": family,
+                    "proto": 0,
+                    "flags": socket.AI_NUMERICHOST,
+                }
+            ]
+        # Fall back to default system DNS
+        infos = await aiohttp.DefaultResolver().resolve(host, port, family)
+        return infos
+
+    async def close(self) -> None:
+        pass
 
 
 class DiscordModerationClient:
@@ -32,12 +98,27 @@ class DiscordModerationClient:
             "Content-Type": "application/json",
         }
         self._session: Optional[aiohttp.ClientSession] = None
+        self._discord_ip: Optional[str] = None
         logger.info("Discord REST client initialized")
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create an aiohttp session."""
+        """Get or create an aiohttp session with DoH DNS resolver."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(headers=self.headers)
+            # Resolve discord.com IP via DoH on first use
+            if self._discord_ip is None:
+                self._discord_ip = _resolve_discord_ip()
+
+            connector = None
+            if self._discord_ip:
+                resolver = _DiscordDNSResolver(self._discord_ip)
+                connector = aiohttp.TCPConnector(resolver=resolver)
+                logger.info(f"Using DoH-resolved IP for Discord API: {self._discord_ip}")
+            else:
+                logger.warning("DoH resolution failed — trying system DNS")
+
+            self._session = aiohttp.ClientSession(
+                headers=self.headers, connector=connector
+            )
         return self._session
 
     async def close(self):
@@ -58,6 +139,12 @@ class DiscordModerationClient:
                     body = await resp.text()
                     logger.error(f"Discord API GET {path} → {resp.status}: {body}")
                     return None
+        except aiohttp.ClientConnectorError as e:
+            # DNS / connection failed — invalidate cached IP and retry next time
+            logger.error(f"Discord API connection error: {e}")
+            self._discord_ip = None
+            await self.close()
+            return None
         except Exception as e:
             logger.error(f"Discord API request failed: {e}")
             return None
@@ -146,20 +233,24 @@ class DiscordModerationClient:
                         if not msg.get("content"):
                             continue
 
-                        messages.append({
-                            "id": msg["id"],
-                            "text": msg["content"],
-                            "author": f"{author.get('username', 'unknown')}#{author.get('discriminator', '0')}",
-                            "author_id": author.get("id", ""),
-                            "channel": cname,
-                            "channel_id": cid,
-                            "guild": gname,
-                            "guild_id": gid,
-                            "timestamp": msg.get("timestamp"),
-                            "platform": "discord",
-                        })
+                        messages.append(
+                            {
+                                "id": msg["id"],
+                                "text": msg["content"],
+                                "author": f"{author.get('username', 'unknown')}#{author.get('discriminator', '0')}",
+                                "author_id": author.get("id", ""),
+                                "channel": cname,
+                                "channel_id": cid,
+                                "guild": gname,
+                                "guild_id": gid,
+                                "timestamp": msg.get("timestamp"),
+                                "platform": "discord",
+                            }
+                        )
 
-            logger.info(f"Fetched {len(messages)} Discord messages from {len(guilds)} guild(s)")
+            logger.info(
+                f"Fetched {len(messages)} Discord messages from {len(guilds)} guild(s)"
+            )
             return messages
 
         except Exception as e:
@@ -179,11 +270,15 @@ class DiscordModerationClient:
         """Timeout a user in a guild."""
         from datetime import datetime, timedelta, timezone
 
-        until = (datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)).isoformat()
+        until = (
+            datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
+        ).isoformat()
         session = await self._get_session()
         url = f"{DISCORD_API}/guilds/{guild_id}/members/{user_id}"
         try:
-            async with session.patch(url, json={"communication_disabled_until": until}) as resp:
+            async with session.patch(
+                url, json={"communication_disabled_until": until}
+            ) as resp:
                 if resp.status in (200, 204):
                     logger.info(f"Timed out user {user_id} for {duration_minutes}m")
                     return True
