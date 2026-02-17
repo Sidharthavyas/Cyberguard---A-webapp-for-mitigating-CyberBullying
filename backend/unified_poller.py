@@ -85,17 +85,17 @@ async def start_platform_pollers():
                 import os
                 bot_token = os.getenv("DISCORD_BOT_TOKEN")
                 if bot_token:
-                    logger.info("Found Discord session in Redis — auto-starting poller...")
+                    logger.info("🚀 Found Discord session in Redis — auto-starting poller for ALL servers...")
                     credentials = {
                         "bot_token": bot_token,
-                        "guild_ids": [],
-                        "poll_interval": 60,
+                        "guild_ids": [],  # EMPTY = Monitor ALL servers the bot is in
+                        "poll_interval": 60,  # Real-time moderation
                     }
                     await platform_manager.connect_platform(
                         "discord", credentials, DiscordPoller
                     )
                     discord_started = True
-                    logger.info("✓ Discord poller auto-started from session")
+                    logger.info("✅ Discord poller auto-started from session - monitoring ALL servers")
                 else:
                     logger.warning("Discord session found but DISCORD_BOT_TOKEN not in env")
         except Exception as e:

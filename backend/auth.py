@@ -395,18 +395,18 @@ async def discord_callback(
             
             logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
             
-            # Start Discord Poller immediately after login
+            # Start Discord Poller immediately after login for ALL servers
             try:
                 from unified_poller import add_platform
                 import asyncio
                 bot_token = os.getenv("DISCORD_BOT_TOKEN")
                 if bot_token:
-                    logger.info("Starting Discord poller after login...")
+                    logger.info("🚀 Starting Discord poller for ALL servers after login...")
                     # Run in background so callback response isn't delayed
                     asyncio.create_task(add_platform("discord", {
                         "bot_token": bot_token,
-                        "guild_ids": [],  # Monitor all guilds bot is in
-                        "poll_interval": 60,  # Poll every 60 seconds
+                        "guild_ids": [],  # EMPTY = Monitor ALL servers the bot is in
+                        "poll_interval": 60,  # Check every 60 seconds for real-time moderation
                     }))
                 else:
                     logger.error(

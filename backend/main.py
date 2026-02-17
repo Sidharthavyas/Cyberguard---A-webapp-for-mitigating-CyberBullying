@@ -505,6 +505,79 @@ async def get_discord_channels(
     return {"channels": channels}
 
 
+@app.get("/discord/status")
+async def get_discord_status(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Get Discord monitoring status and server information.
+    """
+    if not current_user or current_user.get("platform") != "discord":
+        raise HTTPException(status_code=403, detail="Discord authentication required")
+    
+    from unified_poller import get_platform_client
+    
+    discord_client = get_platform_client("discord")
+    if not discord_client:
+        return {
+            "status": "inactive",
+            "message": "Discord monitoring not active - please log in first",
+            "servers": []
+        }
+    
+    try:
+        guilds = await discord_client.get_bot_guilds()
+        return {
+            "status": "active",
+            "message": f"Monitoring {len(guilds)} servers for hate speech",
+            "servers": guilds,
+            "monitoring_all_servers": True,
+            "poll_interval": "60 seconds",
+            "auto_delete": True,
+            "auto_timeout": True
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error getting Discord status: {str(e)}",
+            "servers": []
+        }
+
+
+@app.post("/discord/start-monitoring")
+async def start_discord_monitoring(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Manually start Discord monitoring for all servers.
+    """
+    if not current_user or current_user.get("platform") != "discord":
+        raise HTTPException(status_code=403, detail="Discord authentication required")
+    
+    try:
+        from unified_poller import add_platform
+        import os
+        
+        bot_token = os.getenv("DISCORD_BOT_TOKEN")
+        if not bot_token:
+            raise HTTPException(status_code=500, detail="DISCORD_BOT_TOKEN not configured")
+        
+        # Start monitoring all servers
+        success = await add_platform("discord", {
+            "bot_token": bot_token,
+            "guild_ids": [],  # Monitor ALL servers
+            "poll_interval": 60
+        })
+        
+        if success:
+            return {
+                "message": "🚀 Discord monitoring started for ALL servers",
+                "status": "active",
+                "monitoring_all_servers": True
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to start Discord monitoring")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting monitoring: {str(e)}")
+
+
 @app.get("/discord/channels/{channel_id}/messages")
 async def get_discord_channel_messages(
     channel_id: str,

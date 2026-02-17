@@ -29,8 +29,9 @@ class DiscordPoller(PlatformPoller):
         super().__init__("Discord")
 
         self.bot_token = credentials.get("bot_token")
-        self.guild_ids = credentials.get("guild_ids", [])
-        self.poll_interval = int(credentials.get("poll_interval", 120))
+        # Empty guild_ids means monitor ALL servers the bot is in
+        self.guild_ids = credentials.get("guild_ids", [])  
+        self.poll_interval = int(credentials.get("poll_interval", 60))  # Faster polling for real-time moderation
 
         if not self.bot_token:
             raise ValueError("Discord bot_token is required")
@@ -41,7 +42,7 @@ class DiscordPoller(PlatformPoller):
         )
         self.processed_messages: set = set()  # Track processed message IDs
 
-        logger.info(f"Discord poller initialized (interval: {self.poll_interval}s)")
+        logger.info(f"Discord poller initialized - monitoring ALL servers (interval: {self.poll_interval}s)")
 
     async def _poll_loop(self):
         """Main polling loop for Discord messages."""
@@ -73,7 +74,7 @@ class DiscordPoller(PlatformPoller):
                 "status": "working",
             })
 
-            messages = await self.client.get_recent_messages(limit=25)
+            messages = await self.client.get_recent_messages(limit=50)  # More messages for better coverage
 
             if not messages:
                 await manager.broadcast({
@@ -153,19 +154,53 @@ class DiscordPoller(PlatformPoller):
             # Run moderation (ML inference + WebSocket broadcast + MongoDB save)
             result = await moderation_engine.process_tweet(tweet_data)
 
-            # If marked for deletion, delete the Discord message
+            # If marked for deletion, delete the Discord message immediately
             if result.get("action") == "delete":
-                logger.info(f"Attempting to delete Discord message {message['id']}")
+                logger.info(f"🚨 TOXIC CONTENT DETECTED - Deleting Discord message {message['id']} from {message.get('guild', 'unknown server')}")
+                
                 deleted = await self.client.delete_message(
                     message["channel_id"],
                     message["id"],
                 )
 
                 if deleted:
-                    logger.warning(f"Deleted toxic Discord message {message['id']}")
+                    logger.warning(f"✅ DELETED toxic message in {message.get('channel', 'unknown')}#{message.get('guild', 'unknown')}")
                     metrics.increment_deleted(result.get("language", "unknown"))
+                    
+                    # Broadcast deletion event
+                    await manager.broadcast({
+                        "type": "moderation_action",
+                        "action": "delete",
+                        "platform": "discord",
+                        "message_id": message["id"],
+                        "guild": message.get("guild"),
+                        "channel": message.get("channel"),
+                        "author": message.get("author"),
+                        "reason": "Cyberbullying/Hate speech detected",
+                        "confidence": result.get("bullying_probability", 0)
+                    })
                 else:
-                    logger.error(f"Failed to delete Discord message {message['id']}")
+                    logger.error(f"❌ Failed to delete toxic message {message['id']} - Check bot permissions!")
+            
+            # Also handle timeout for severe cases
+            elif result.get("action") == "flag" and result.get("bullying_probability", 0) > 0.8:
+                # Auto-timeout users with very high toxicity scores
+                guild_id = message.get("guild_id")
+                author_id = message.get("author_id")
+                if guild_id and author_id:
+                    logger.info(f"⚠️ High toxicity ({result.get('bullying_probability', 0):.2f}) - timing out user {author_id}")
+                    timeout_success = await self.client.timeout_user(guild_id, author_id, duration_minutes=30)
+                    
+                    if timeout_success:
+                        await manager.broadcast({
+                            "type": "moderation_action", 
+                            "action": "timeout",
+                            "platform": "discord",
+                            "user_id": author_id,
+                            "guild": message.get("guild"),
+                            "duration_minutes": 30,
+                            "reason": "High toxicity auto-timeout"
+                        })
 
         except Exception as e:
             logger.error(f"Error moderating Discord message {message['id']}: {e}")
