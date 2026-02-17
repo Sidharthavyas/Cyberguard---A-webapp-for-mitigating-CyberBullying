@@ -167,13 +167,14 @@ class TwitterClient:
     
     def delete_tweet(self, tweet_id: str) -> bool:
         """
-        Delete a tweet owned by the authenticated user.
+        Delete a tweet owned by the authenticated user,
+        or HIDE it if it's someone else's reply.
         
         Args:
-            tweet_id: ID of tweet to delete
+            tweet_id: ID of tweet to delete/hide
             
         Returns:
-            True if successful, False otherwise
+            True if successfully deleted or hidden, False otherwise
         """
         try:
             # user_auth=False forces Bearer token auth.  When the bearer
@@ -190,10 +191,43 @@ class TwitterClient:
                 return False
                 
         except tweepy.errors.Forbidden as e:
-            logger.error(f"Forbidden to delete tweet {tweet_id}: {e}")
-            return False
+            # Can't delete someone else's tweet — try to HIDE it instead
+            logger.info(f"Cannot delete tweet {tweet_id} (not ours) — trying to hide reply...")
+            return self.hide_reply(tweet_id)
         except tweepy.errors.TweepyException as e:
             logger.error(f"Error deleting tweet {tweet_id}: {e}")
+            # Also try hiding as fallback
+            return self.hide_reply(tweet_id)
+
+    def hide_reply(self, tweet_id: str) -> bool:
+        """
+        Hide a reply to the authenticated user's tweet.
+        Twitter API: PUT /2/tweets/:id/hidden
+        
+        This is the correct action for toxic REPLIES — you can't delete
+        other people's tweets, but you CAN hide replies to your own tweets.
+        
+        Args:
+            tweet_id: ID of the reply to hide
+            
+        Returns:
+            True if successfully hidden, False otherwise
+        """
+        try:
+            response = self.client.hide_reply(tweet_id, user_auth=False)
+            
+            if response.data and response.data.get('hidden'):
+                logger.info(f"Successfully HIDDEN reply {tweet_id}")
+                return True
+            else:
+                logger.warning(f"Hide reply {tweet_id} returned unexpected response: {response.data}")
+                return False
+                
+        except tweepy.errors.Forbidden as e:
+            logger.error(f"Forbidden to hide reply {tweet_id}: {e}")
+            return False
+        except tweepy.errors.TweepyException as e:
+            logger.error(f"Error hiding reply {tweet_id}: {e}")
             return False
     
     def search_recent_tweets(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
