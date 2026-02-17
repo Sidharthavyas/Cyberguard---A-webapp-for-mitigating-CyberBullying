@@ -227,10 +227,9 @@ async def discord_login():
             "client_id": DISCORD_CLIENT_ID,
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": "identify guilds bot guilds.members.read guilds.channels.read",
-            "state": state,
-            "permissions": "68608",  # Essential bot permissions
-            "integration_type": "0"  # Allow server selection during OAuth
+            "scope": "identify guilds",
+            "state": state
+            # First, just authenticate user to get their guilds
         }
         
         authorization_url = f"https://discord.com/api/oauth2/authorize?{urllib.parse.urlencode(params)}"
@@ -420,6 +419,35 @@ async def discord_callback(
             logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
             logger.info(f"User has admin access to {len(admin_guilds)} servers")
             
+            # Check if user has admin guilds and redirect to server selection
+            if len(admin_guilds) > 0:
+                # Store guilds temporarily for server selection
+                redis_client.setex(
+                    f"temp_guilds:{user_id}",
+                    600,  # 10 minutes
+                    json.dumps({
+                        "guilds": admin_guilds,
+                        "access_token": access_token,
+                        "username": username
+                    })
+                )
+                
+                return RedirectResponse(
+                    url=f"{FRONTEND_URL}/server-selection?user_id={user_id}&username={username}&guilds_count={len(admin_guilds)}"
+                )
+            else:
+                # No admin guilds, just login normally
+                return RedirectResponse(
+                    url=(
+                        f"{FRONTEND_URL}/callback"
+                        f"?platform=discord"
+                        f"&access_token={access_token}"
+                        f"&user_id={user_id}"
+                        f"&username={username}"
+                        f"&message=Login successful! No servers where you have admin permissions."
+                    )
+                )
+            
             # Start Discord Poller immediately after login for ALL servers
             try:
                 from unified_poller import add_platform
@@ -561,3 +589,113 @@ async def logout(user_id: str):
     except Exception as e:
         logger.error(f"Error during logout: {e}")
         raise HTTPException(status_code=500, detail="Logout failed")
+
+
+@router.post("/add-bot-to-servers")
+async def add_bot_to_servers(
+    user_id: str,
+    selected_guilds: List[str],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Add bot to selected servers.
+    """
+    try:
+        # Get temporary guilds data
+        temp_data = redis_client.get(f"temp_guilds:{user_id}")
+        if not temp_data:
+            raise HTTPException(status_code=400, detail="Server selection session expired")
+        
+        data = json.loads(temp_data)
+        guilds = data.get("guilds", [])
+        access_token = data.get("access_token")
+        
+        # Generate OAuth2 URLs for each selected guild
+        bot_oauth_urls = []
+        for guild_id in selected_guilds:
+            guild = next((g for g in guilds if g["id"] == guild_id), None)
+            if guild:
+                oauth_url = (
+                    f"https://discord.com/oauth2/authorize"
+                    f"?client_id={DISCORD_CLIENT_ID}"
+                    f"&permissions=68608"
+                    f"&response_type=code"
+                    f"&scope=bot%20applications.commands"
+                    f"&guild_id={guild_id}"
+                    f"&disable_guild_select=true"
+                    f"&redirect_uri={BACKEND_URL}/auth/discord/bot-callback"
+                )
+                bot_oauth_urls.append({
+                    "guild_id": guild_id,
+                    "guild_name": guild.get("name", "Unknown Server"),
+                    "oauth_url": oauth_url
+                })
+        
+        return {
+            "message": "Please authorize the bot in each server",
+            "oauth_urls": bot_oauth_urls,
+            "total_servers": len(bot_oauth_urls)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding bot to servers: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add bot to servers")
+
+
+@router.get("/discord/bot-callback")
+async def discord_bot_callback(
+    guild_id: Optional[str] = Query(None),
+    code: Optional[str] = Query(None),
+    error: Optional[str] = Query(None)
+):
+    """
+    Handle bot addition callback for individual servers.
+    """
+    if error:
+        logger.error(f"Bot addition error: {error}")
+        return RedirectResponse(url=f"{FRONTEND_URL}?error={error}")
+    
+    if code and guild_id:
+        try:
+            # Exchange code for bot token
+            import requests as sync_requests
+            
+            token_data = {
+                "client_id": DISCORD_CLIENT_ID,
+                "client_secret": DISCORD_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": f"{BACKEND_URL}/auth/discord/bot-callback"
+            }
+            
+            resp = sync_requests.post(
+                "https://discord.com/api/oauth2/token",
+                data=token_data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"}
+            )
+            resp.raise_for_status()
+            
+            logger.info(f"✅ Bot successfully added to guild {guild_id}")
+            
+            # Start monitoring if not already running
+            bot_token = os.getenv("DISCORD_BOT_TOKEN")
+            if bot_token:
+                from unified_poller import add_platform
+                import asyncio
+                asyncio.create_task(add_platform("discord", {
+                    "bot_token": bot_token,
+                    "guild_ids": [],  # Monitor all servers
+                    "poll_interval": 60
+                }))
+            
+            return RedirectResponse(
+                url=f"{FRONTEND_URL}?message=Bot successfully added to server!&guild_id={guild_id}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Bot callback error: {e}")
+            return RedirectResponse(url=f"{FRONTEND_URL}?error=bot_addition_failed")
+    
+    return RedirectResponse(url=f"{FRONTEND_URL}?error=invalid_bot_callback")
