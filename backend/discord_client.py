@@ -213,6 +213,14 @@ class DiscordModerationClient:
                     continue
 
                 channels = await self.get_guild_text_channels(gid)
+                logger.info(f"Guild '{gname}' ({gid}): found {len(channels)} text channels")
+
+                if not channels:
+                    logger.warning(
+                        f"No text channels visible in '{gname}' — "
+                        f"bot may be missing VIEW_CHANNEL permission"
+                    )
+                    continue
 
                 for channel in channels:
                     cid = channel["id"]
@@ -224,19 +232,34 @@ class DiscordModerationClient:
                         logger.warning(f"Error fetching #{cname}: {e}")
                         continue
 
+                    if raw_msgs is None:
+                        logger.warning(
+                            f"  #{cname}: API returned None — "
+                            f"bot probably missing READ_MESSAGE_HISTORY permission"
+                        )
+                        continue
+
+                    # Diagnostic counters
+                    total_raw = len(raw_msgs)
+                    skipped_bot = 0
+                    skipped_empty = 0
+
                     for msg in raw_msgs:
                         # Skip bot messages
                         author = msg.get("author", {})
                         if author.get("bot"):
+                            skipped_bot += 1
                             continue
                         # Skip empty messages (images/embeds only)
-                        if not msg.get("content"):
+                        content = msg.get("content")
+                        if not content:
+                            skipped_empty += 1
                             continue
 
                         messages.append(
                             {
                                 "id": msg["id"],
-                                "text": msg["content"],
+                                "text": content,
                                 "author": f"{author.get('username', 'unknown')}#{author.get('discriminator', '0')}",
                                 "author_id": author.get("id", ""),
                                 "channel": cname,
@@ -246,6 +269,21 @@ class DiscordModerationClient:
                                 "timestamp": msg.get("timestamp"),
                                 "platform": "discord",
                             }
+                        )
+
+                    kept = total_raw - skipped_bot - skipped_empty
+                    logger.info(
+                        f"  #{cname}: {total_raw} raw msgs → "
+                        f"{kept} kept, {skipped_bot} bot, {skipped_empty} empty-content"
+                    )
+
+                    # If ALL messages have empty content, it's likely a missing
+                    # MESSAGE CONTENT privileged intent
+                    if total_raw > 0 and skipped_empty == total_raw - skipped_bot and kept == 0:
+                        logger.error(
+                            f"  ⚠ All non-bot messages in #{cname} have empty content! "
+                            f"Enable MESSAGE CONTENT INTENT in Discord Developer Portal → "
+                            f"Bot → Privileged Gateway Intents"
                         )
 
             logger.info(
