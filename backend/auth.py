@@ -393,17 +393,24 @@ async def discord_callback(
             
             logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
             
-            # Start Discord Poller immediately
+            # Start Discord Poller immediately after login
             try:
                 from unified_poller import add_platform
+                import asyncio
                 bot_token = os.getenv("DISCORD_BOT_TOKEN")
                 if bot_token:
-                    await add_platform("discord", {
+                    logger.info("Starting Discord poller after login...")
+                    # Run in background so callback response isn't delayed
+                    asyncio.create_task(add_platform("discord", {
                         "bot_token": bot_token,
-                        "guild_ids": [] # Monitor all guilds bot is in
-                    })
+                        "guild_ids": [],  # Monitor all guilds bot is in
+                        "poll_interval": 60,  # Poll every 60 seconds
+                    }))
                 else:
-                    logger.warning("DISCORD_BOT_TOKEN not found in env - cannot start Discord poller automatically")
+                    logger.error(
+                        "DISCORD_BOT_TOKEN not set — Discord scanning disabled!  "
+                        "Add DISCORD_BOT_TOKEN as an HF Space secret."
+                    )
             except Exception as e:
                 logger.error(f"Failed to auto-start Discord poller: {e}")
         

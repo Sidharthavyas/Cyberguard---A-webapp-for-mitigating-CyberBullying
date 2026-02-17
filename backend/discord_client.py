@@ -1,209 +1,203 @@
 """
 Discord client for CyberGuard - Moderate Discord server messages.
-Uses Discord Bot API (no user login required, just bot token).
+Uses Discord REST API (HTTP) — no gateway bot connection needed.
+Works inside FastAPI's async event loop without blocking.
 """
 
 import os
 import logging
-import discord
+import aiohttp
 from typing import Optional, List, Dict
-from discord.ext import commands
 
 logger = logging.getLogger(__name__)
 
+DISCORD_API = "https://discord.com/api/v10"
+
 
 class DiscordModerationClient:
-    """Discord bot client for message moderation"""
-    
-    def __init__(self, bot_token: str, guild_ids: Optional[List[int]] = None):
+    """Discord REST API client for message moderation."""
+
+    def __init__(self, bot_token: str, guild_ids: Optional[List[str]] = None):
         """
-        Initialize Discord bot client.
-        
+        Initialize Discord REST client.
+
         Args:
-            bot_token: Discord bot token from Discord Developer Portal
-            guild_ids: Optional list of server IDs to monitor (None = all servers)
+            bot_token: Discord bot token from Developer Portal
+            guild_ids: Optional list of server IDs to monitor (None = all)
         """
         self.bot_token = bot_token
         self.guild_ids = guild_ids or []
-        
-        # Initialize bot with required intents
-        intents = discord.Intents.default()
-        intents.message_content = True  # Required to read message content
-        intents.guilds = True
-        intents.guild_messages = True
-        
-        self.client = discord.Client(intents=intents)
-        self.is_ready = False
-        
-        logger.info("Discord client initialized")
-    
-    async def start(self):
-        """Start the Discord bot"""
+        self.headers = {
+            "Authorization": f"Bot {self.bot_token}",
+            "Content-Type": "application/json",
+        }
+        self._session: Optional[aiohttp.ClientSession] = None
+        logger.info("Discord REST client initialized")
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create an aiohttp session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(headers=self.headers)
+        return self._session
+
+    async def close(self):
+        """Close the HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    # ---- REST helpers ----
+
+    async def _get(self, path: str) -> Optional[any]:
+        session = await self._get_session()
+        url = f"{DISCORD_API}{path}"
         try:
-            await self.client.login(self.bot_token)
-            await self.client.connect()
-            self.is_ready = True
-            logger.info("✓ Discord bot connected")
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    body = await resp.text()
+                    logger.error(f"Discord API GET {path} → {resp.status}: {body}")
+                    return None
         except Exception as e:
-            logger.error(f"Failed to start Discord bot: {e}")
-            raise
-    
-    async def stop(self):
-        """Stop the Discord bot"""
+            logger.error(f"Discord API request failed: {e}")
+            return None
+
+    async def _delete(self, path: str) -> bool:
+        session = await self._get_session()
+        url = f"{DISCORD_API}{path}"
         try:
-            await self.client.close()
-            self.is_ready = False
-            logger.info("✗ Discord bot disconnected")
+            async with session.delete(url) as resp:
+                if resp.status == 204:
+                    return True
+                else:
+                    body = await resp.text()
+                    logger.error(f"Discord API DELETE {path} → {resp.status}: {body}")
+                    return False
         except Exception as e:
-            logger.error(f"Failed to stop Discord bot: {e}")
-    
-    async def get_recent_messages(self, limit: int = 100) -> List[Dict]:
-        """
-        Fetch recent messages from monitored servers.
-        
-        Args:
-            limit: Max messages to fetch per channel
-            
-        Returns:
-            List of message dictionaries
-        """
-        if not self.is_ready:
-            logger.warning("Discord bot not ready")
+            logger.error(f"Discord API delete failed: {e}")
+            return False
+
+    # ---- Public API ----
+
+    async def get_bot_guilds(self) -> List[Dict]:
+        """Get list of guilds the bot is in."""
+        data = await self._get("/users/@me/guilds")
+        return data if data else []
+
+    async def get_guild_text_channels(self, guild_id: str) -> List[Dict]:
+        """Get text channels in a guild."""
+        data = await self._get(f"/guilds/{guild_id}/channels")
+        if not data:
             return []
-        
+        # Filter to text channels only (type 0)
+        return [ch for ch in data if ch.get("type") == 0]
+
+    async def get_channel_messages(
+        self, channel_id: str, limit: int = 50
+    ) -> List[Dict]:
+        """Fetch recent messages from a channel."""
+        data = await self._get(f"/channels/{channel_id}/messages?limit={limit}")
+        return data if data else []
+
+    async def get_recent_messages(self, limit: int = 25) -> List[Dict]:
+        """
+        Fetch recent messages from all monitored guilds/channels.
+
+        Args:
+            limit: Max messages per channel
+
+        Returns:
+            List of message dicts with standardized fields
+        """
         messages = []
-        
+
         try:
-            for guild in self.client.guilds:
-                # Skip if guild_ids specified and this guild not in list
-                if self.guild_ids and guild.id not in self.guild_ids:
+            guilds = await self.get_bot_guilds()
+            if not guilds:
+                logger.warning("Bot is not in any guilds")
+                return []
+
+            for guild in guilds:
+                gid = guild["id"]
+                gname = guild.get("name", gid)
+
+                # Skip if guild_ids specified and this one isn't in the list
+                if self.guild_ids and gid not in self.guild_ids:
                     continue
-                
-                logger.info(f"Fetching messages from guild: {guild.name}")
-                
-                # Iterate through text channels
-                for channel in guild.text_channels:
+
+                channels = await self.get_guild_text_channels(gid)
+
+                for channel in channels:
+                    cid = channel["id"]
+                    cname = channel.get("name", cid)
+
                     try:
-                        # Fetch recent messages
-                        async for message in channel.history(limit=limit):
-                            if message.author.bot:
-                                continue  # Skip bot messages
-                            
-                            messages.append({
-                                "id": str(message.id),
-                                "text": message.content,
-                                "author": str(message.author),
-                                "author_id": str(message.author.id),
-                                "channel": channel.name,
-                                "channel_id": str(channel.id),
-                                "guild": guild.name,
-                                "guild_id": str(guild.id),
-                                "timestamp": message.created_at.isoformat(),
-                                "platform": "discord"
-                            })
-                    
-                    except discord.Forbidden:
-                        logger.warning(f"No permission to read {channel.name}")
-                        continue
+                        raw_msgs = await self.get_channel_messages(cid, limit=limit)
                     except Exception as e:
-                        logger.error(f"Error fetching from {channel.name}: {e}")
+                        logger.warning(f"Error fetching #{cname}: {e}")
                         continue
-            
-            logger.info(f"Fetched {len(messages)} Discord messages")
+
+                    for msg in raw_msgs:
+                        # Skip bot messages
+                        author = msg.get("author", {})
+                        if author.get("bot"):
+                            continue
+                        # Skip empty messages (images/embeds only)
+                        if not msg.get("content"):
+                            continue
+
+                        messages.append({
+                            "id": msg["id"],
+                            "text": msg["content"],
+                            "author": f"{author.get('username', 'unknown')}#{author.get('discriminator', '0')}",
+                            "author_id": author.get("id", ""),
+                            "channel": cname,
+                            "channel_id": cid,
+                            "guild": gname,
+                            "guild_id": gid,
+                            "timestamp": msg.get("timestamp"),
+                            "platform": "discord",
+                        })
+
+            logger.info(f"Fetched {len(messages)} Discord messages from {len(guilds)} guild(s)")
             return messages
-        
+
         except Exception as e:
             logger.error(f"Error fetching Discord messages: {e}")
             return []
-    
+
     async def delete_message(self, channel_id: str, message_id: str) -> bool:
-        """
-        Delete a Discord message.
-        
-        Args:
-            channel_id: Discord channel ID
-            message_id: Discord message ID
-            
-        Returns:
-            True if deleted, False otherwise
-        """
-        if not self.is_ready:
-            logger.warning("Discord bot not ready")
-            return False
-        
+        """Delete a Discord message."""
+        ok = await self._delete(f"/channels/{channel_id}/messages/{message_id}")
+        if ok:
+            logger.info(f"Deleted Discord message {message_id} in #{channel_id}")
+        return ok
+
+    async def timeout_user(
+        self, guild_id: str, user_id: str, duration_minutes: int = 10
+    ) -> bool:
+        """Timeout a user in a guild."""
+        from datetime import datetime, timedelta, timezone
+
+        until = (datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)).isoformat()
+        session = await self._get_session()
+        url = f"{DISCORD_API}/guilds/{guild_id}/members/{user_id}"
         try:
-            channel = self.client.get_channel(int(channel_id))
-            if not channel:
-                logger.error(f"Channel {channel_id} not found")
-                return False
-            
-            message = await channel.fetch_message(int(message_id))
-            if not message:
-                logger.error(f"Message {message_id} not found")
-                return False
-            
-            await message.delete()
-            logger.info(f"Deleted Discord message {message_id}")
-            return True
-        
-        except discord.Forbidden:
-            logger.error(f"No permission to delete message {message_id}")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to delete Discord message: {e}")
-            return False
-    
-    async def timeout_user(self, guild_id: str, user_id: str, duration_minutes: int = 10) -> bool:
-        """
-        Timeout a user in a Discord server.
-        
-        Args:
-            guild_id: Discord server ID
-            user_id: User ID to timeout
-            duration_minutes: Timeout duration in minutes
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.is_ready:
-            logger.warning("Discord bot not ready")
-            return False
-        
-        try:
-            guild = self.client.get_guild(int(guild_id))
-            if not guild:
-                logger.error(f"Guild {guild_id} not found")
-                return False
-            
-            member = await guild.fetch_member(int(user_id))
-            if not member:
-                logger.error(f"Member {user_id} not found")
-                return False
-            
-            import datetime
-            until = discord.utils.utcnow() + datetime.timedelta(minutes=duration_minutes)
-            await member.timeout(until)
-            
-            logger.info(f"Timed out user {user_id} for {duration_minutes} minutes")
-            return True
-        
-        except discord.Forbidden:
-            logger.error(f"No permission to timeout user {user_id}")
-            return False
+            async with session.patch(url, json={"communication_disabled_until": until}) as resp:
+                if resp.status in (200, 204):
+                    logger.info(f"Timed out user {user_id} for {duration_minutes}m")
+                    return True
+                else:
+                    body = await resp.text()
+                    logger.error(f"Timeout failed: {resp.status} {body}")
+                    return False
         except Exception as e:
             logger.error(f"Failed to timeout user: {e}")
             return False
 
 
-def get_discord_client(bot_token: str, guild_ids: Optional[List[int]] = None) -> DiscordModerationClient:
-    """
-    Create a Discord client instance.
-    
-    Args:
-        bot_token: Discord bot token
-        guild_ids: Optional list of server IDs to monitor
-        
-    Returns:
-        DiscordModerationClient instance
-    """
+# Factory function
+def get_discord_client(
+    bot_token: str, guild_ids: Optional[List[str]] = None
+) -> DiscordModerationClient:
     return DiscordModerationClient(bot_token, guild_ids)

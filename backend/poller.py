@@ -147,7 +147,7 @@ async def poll_once(twitter, redis_client, processed_ids: set):
                 logger.debug("Current session is not Twitter - waiting for Twitter login")
     
     if not user_id:
-        await manager.broadcast({"type": "status", "message": "Waiting for user login...", "status": "idle"})
+        # Only show waiting message if no Twitter session — Discord has its own poller
         return
 
     # Broadcast start of poll

@@ -50,41 +50,61 @@ def get_connected_platforms() -> Dict:
 async def start_platform_pollers():
     """
     Start pollers for all connected platforms.
-    Only runs pollers for platforms that users have connected.
+    Also checks Redis for existing sessions to auto-resume after restarts.
     """
     logger.info("Starting unified platform pollers...")
-    
+
     platform_manager = get_platform_manager()
     platforms = get_connected_platforms()
-    
-    if not platforms:
-        logger.info("No platforms connected - pollers will start when platforms are connected")
-        return
-    
-    # Start Twitter poller (existing logic)
-    if platforms.get("twitter", {}).get("enabled"):
-        logger.info("Twitter connection found - poller already running from existing system")
-    
-    # Start Discord poller
+
+    # Start from stored config first
+    discord_started = False
+
     if platforms.get("discord", {}).get("enabled"):
         try:
             disc_config = platforms["discord"]
             credentials = {
                 "bot_token": disc_config.get("bot_token"),
                 "guild_ids": disc_config.get("guild_ids", []),
-                "poll_interval": disc_config.get("poll_interval", 120)
+                "poll_interval": disc_config.get("poll_interval", 60),
             }
-            
+
             await platform_manager.connect_platform(
-                "discord",
-                credentials,
-                DiscordPoller
+                "discord", credentials, DiscordPoller
             )
-            logger.info("✓ Discord poller started")
-        
+            discord_started = True
+            logger.info("✓ Discord poller started from stored config")
         except Exception as e:
-            logger.error(f"Failed to start Discord poller: {e}")
-    
+            logger.error(f"Failed to start Discord poller from config: {e}")
+
+    # Fallback: check Redis for an existing Discord session (user logged in before)
+    if not discord_started and redis_client:
+        try:
+            session_data = redis_client.get("session:discord")
+            if session_data:
+                import os
+                bot_token = os.getenv("DISCORD_BOT_TOKEN")
+                if bot_token:
+                    logger.info("Found Discord session in Redis — auto-starting poller...")
+                    credentials = {
+                        "bot_token": bot_token,
+                        "guild_ids": [],
+                        "poll_interval": 60,
+                    }
+                    await platform_manager.connect_platform(
+                        "discord", credentials, DiscordPoller
+                    )
+                    discord_started = True
+                    logger.info("✓ Discord poller auto-started from session")
+                else:
+                    logger.warning("Discord session found but DISCORD_BOT_TOKEN not in env")
+        except Exception as e:
+            logger.error(f"Failed to auto-start Discord from session: {e}")
+
+    if not platforms and not discord_started:
+        logger.info("No platforms connected - pollers will start when platforms are connected")
+        return
+
     logger.info(f"Unified pollers running for: {platform_manager.get_connected_platforms()}")
 
 
