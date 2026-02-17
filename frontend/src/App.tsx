@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import LoginPage from './pages/LoginPage';
 import CallbackPage from './pages/CallbackPage';
+import ServerSelectionPage from './pages/ServerSelectionPage';
 import Dashboard from './pages/Dashboard';
 
 // Protected route wrapper - checks for any platform's auth token
@@ -26,6 +27,7 @@ function App() {
         <Routes>
           <Route path="/" element={<LoginPage />} />
           <Route path="/callback" element={<CallbackPage />} />
+          <Route path="/server-selection" element={<ServerSelectionPage />} />
           <Route
             path="/dashboard"
             element={

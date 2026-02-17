@@ -591,6 +591,34 @@ async def logout(user_id: str):
         raise HTTPException(status_code=500, detail="Logout failed")
 
 
+@router.get("/discord/guilds/{user_id}")
+async def get_user_guilds(user_id: str):
+    """
+    Get user's Discord guilds where they have admin permissions.
+    """
+    try:
+        # Get temporary guilds data
+        temp_data = redis_client.get(f"temp_guilds:{user_id}")
+        if not temp_data:
+            raise HTTPException(status_code=404, detail="Guild data not found or expired")
+        
+        data = json.loads(temp_data)
+        guilds = data.get("guilds", [])
+        
+        return {
+            "user_id": user_id,
+            "username": data.get("username", "Unknown"),
+            "guilds": guilds,
+            "total_guilds": len(guilds)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching user guilds: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch guilds")
+
+
 @router.post("/add-bot-to-servers")
 async def add_bot_to_servers(
     user_id: str,
