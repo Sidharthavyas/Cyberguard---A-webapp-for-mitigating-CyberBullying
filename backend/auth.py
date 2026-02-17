@@ -227,8 +227,10 @@ async def discord_login():
             "client_id": DISCORD_CLIENT_ID,
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": "identify guilds",
-            "state": state
+            "scope": "identify guilds bot guilds.members.read guilds.channels.read",
+            "state": state,
+            "permissions": "68608",  # Essential bot permissions
+            "integration_type": "0"  # Allow server selection during OAuth
         }
         
         authorization_url = f"https://discord.com/api/oauth2/authorize?{urllib.parse.urlencode(params)}"
@@ -367,6 +369,26 @@ async def discord_callback(
         user_id = user_info["id"]
         username = user_info["username"]
         
+        # Fetch user's guilds where they have admin permissions
+        def _fetch_user_guilds():
+            """Fetch guilds where user can add the bot."""
+            try:
+                # Use the access token to get user's guilds
+                guilds_resp = sync_requests.get(
+                    "https://discord.com/api/users/@me/guilds",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=30
+                )
+                guilds_resp.raise_for_status()
+                return guilds_resp.json()
+            except Exception as e:
+                logger.warning(f"Failed to fetch user guilds: {e}")
+                return []
+        
+        user_guilds = await asyncio.to_thread(_fetch_user_guilds)
+        admin_guilds = [g for g in user_guilds if (g.get("permissions", 0) & 0x8) == 0x8]  # ADMIN permission
+        logger.info(f"User has admin access to {len(admin_guilds)} servers")
+        
         # Store in Redis
         if redis_client:
             platform_data = {
@@ -388,12 +410,15 @@ async def discord_callback(
                 "user_id": str(user_id),
                 "username": username,
                 "platform": "discord",
-                "access_token": access_token
+                "access_token": access_token,
+                "guilds": admin_guilds,  # Store user's admin guilds
+                "total_guilds": len(admin_guilds)
             }
             redis_client.set("session:discord", json.dumps(session_data))
             redis_client.set("session:current_user", json.dumps(session_data))
             
             logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
+            logger.info(f"User has admin access to {len(admin_guilds)} servers")
             
             # Start Discord Poller immediately after login for ALL servers
             try:
@@ -423,6 +448,8 @@ async def discord_callback(
                 f"&access_token={access_token}"
                 f"&user_id={user_id}"
                 f"&username={username}"
+                f"&guilds_count={len(admin_guilds)}"
+                f"&message=Login successful! Bot added to {len(admin_guilds)} servers."
             )
         )
     
