@@ -78,7 +78,7 @@ def _create_oauth_handler() -> tweepy.OAuth2UserHandler:
     return tweepy.OAuth2UserHandler(
         client_id=TWITTER_CLIENT_ID,
         redirect_uri=f"{BACKEND_URL}/auth/twitter/callback",
-        scope=["tweet.read", "tweet.write", "users.read", "offline.access"],
+        scope=["tweet.read", "tweet.write", "tweet.moderate.write", "users.read", "offline.access"],
         client_secret=TWITTER_CLIENT_SECRET
     )
 

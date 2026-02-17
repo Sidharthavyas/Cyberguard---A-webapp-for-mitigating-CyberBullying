@@ -93,7 +93,10 @@ class TwitterClient:
         )
         
         try:
-            me = self.client.get_me()
+            # IMPORTANT: user_auth=False tells tweepy to use the bearer token
+            # (our OAuth2 user token) instead of trying OAuth 1.0a which
+            # requires consumer keys we don't have on HF Spaces.
+            me = self.client.get_me(user_auth=False)
             if me and me.data:
                 self.user_id = me.data.id
                 logger.info(f"✓ OAuth2 user auth successful — user: {me.data.username} (ID: {self.user_id})")
