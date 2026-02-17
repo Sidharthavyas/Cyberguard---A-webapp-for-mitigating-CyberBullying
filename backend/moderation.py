@@ -5,6 +5,7 @@ Uses binary classification (0=safe, 1=bullying) with optimal thresholds.
 """
 
 import os
+import re
 import logging
 from typing import Dict, Any
 from models import get_detector
@@ -27,6 +28,23 @@ class ModerationEngine:
             f"Flag: ={self.flag_threshold}"
         )
     
+    @staticmethod
+    def clean_text_for_ml(text: str) -> str:
+        """
+        Clean text before sending to ML model.
+        Removes @mentions, URLs, and extra whitespace that
+        confuse the model (trained on clean text).
+        """
+        # Remove @mentions (e.g. @UnbotheredDev24)
+        cleaned = re.sub(r'@\w+', '', text)
+        # Remove URLs
+        cleaned = re.sub(r'https?://\S+', '', cleaned)
+        # Remove # symbol but keep the word
+        cleaned = cleaned.replace('#', '')
+        # Collapse whitespace
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        return cleaned
+    
     async def process_tweet(self, tweet: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process a single tweet through the moderation pipeline.
@@ -44,9 +62,15 @@ class ModerationEngine:
         
         logger.info(f"Processing {platform} content {tweet_id}")
         
-        # Run ML inference
+        # Clean text for ML — strip @mentions, URLs, etc.
+        cleaned_text = self.clean_text_for_ml(text)
+        if not cleaned_text:
+            logger.info(f"SKIPPED {platform} content {tweet_id} (empty after cleaning)")
+            return {"tweet_id": str(tweet_id), "action": "ignore", "label_name": "SAFE"}
+        
+        # Run ML inference on CLEANED text
         detector = get_detector()
-        analysis = detector.analyze(text)
+        analysis = detector.analyze(cleaned_text)
         
         label = analysis["label"]  # 0=safe, 1=bullying
         label_name = analysis["label_name"]  # "SAFE" or "BULLYING"
@@ -75,13 +99,19 @@ class ModerationEngine:
                 # Other platforms handle deletion in their poller
                 if platform == "twitter":
                     twitter = get_twitter_client()
-                    deleted = twitter.delete_tweet(tweet_id)
+                    result = twitter.delete_tweet(tweet_id)
                     
-                    if deleted:
+                    if result == "deleted":
+                        deleted = True
                         metrics.increment_deleted(language)
                         logger.warning(f"DELETED tweet {tweet_id} (Bullying, confidence: {confidence:.2f})")
+                    elif result == "hidden":
+                        deleted = False
+                        action = "hidden"
+                        metrics.increment_deleted(language)
+                        logger.warning(f"HIDDEN reply {tweet_id} (Bullying, confidence: {confidence:.2f})")
                     else:
-                        logger.error(f"Failed to delete tweet {tweet_id}")
+                        logger.error(f"Failed to moderate tweet {tweet_id}")
                         action = "delete_failed"
                 else:
                     logger.info(f"Marked {platform} content {tweet_id} for deletion (handled by poller)")

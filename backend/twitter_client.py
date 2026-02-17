@@ -168,7 +168,7 @@ class TwitterClient:
             logger.error(f"Error fetching mentions for {target_user_id}: {e}")
             return []
     
-    def delete_tweet(self, tweet_id: str) -> bool:
+    def delete_tweet(self, tweet_id: str):
         """
         Delete a tweet owned by the authenticated user,
         or HIDE it if it's someone else's reply.
@@ -177,18 +177,16 @@ class TwitterClient:
             tweet_id: ID of tweet to delete/hide
             
         Returns:
-            True if successfully deleted or hidden, False otherwise
+            "deleted" if successfully deleted,
+            "hidden" if successfully hidden,
+            False if both failed
         """
         try:
-            # user_auth=False forces Bearer token auth.  When the bearer
-            # token is an OAuth2 User Access Token (from PKCE login), this
-            # gives user-context write permissions without needing OAuth 1.0a
-            # consumer keys.
             response = self.client.delete_tweet(tweet_id, user_auth=False)
             
             if response.data and response.data.get('deleted'):
                 logger.info(f"Successfully deleted tweet {tweet_id}")
-                return True
+                return "deleted"
             else:
                 logger.warning(f"Tweet {tweet_id} deletion returned unexpected response")
                 return False
@@ -202,26 +200,23 @@ class TwitterClient:
             # Also try hiding as fallback
             return self.hide_reply(tweet_id)
 
-    def hide_reply(self, tweet_id: str) -> bool:
+    def hide_reply(self, tweet_id: str):
         """
         Hide a reply to the authenticated user's tweet.
         Twitter API: PUT /2/tweets/:id/hidden
-        
-        This is the correct action for toxic REPLIES — you can't delete
-        other people's tweets, but you CAN hide replies to your own tweets.
         
         Args:
             tweet_id: ID of the reply to hide
             
         Returns:
-            True if successfully hidden, False otherwise
+            "hidden" if successfully hidden, False otherwise
         """
         try:
             response = self.client.hide_reply(tweet_id, user_auth=False)
             
             if response.data and response.data.get('hidden'):
                 logger.info(f"Successfully HIDDEN reply {tweet_id}")
-                return True
+                return "hidden"
             else:
                 logger.warning(f"Hide reply {tweet_id} returned unexpected response: {response.data}")
                 return False

@@ -191,7 +191,14 @@ class ToxicityDetector:
     
     def _secondary_inference(self, text: str) -> Tuple[int, float, float]:
         """
-        Run inference on secondary model (Toxic-BERT) with optimal threshold.
+        Run inference on secondary model (Toxic-BERT).
+        
+        toxic-bert is a MULTI-LABEL model with 6 outputs:
+          0: toxic, 1: severe_toxic, 2: obscene, 
+          3: threat, 4: insult, 5: identity_hate
+        
+        Uses SIGMOID (not softmax) since each label is independent.
+        If ANY toxicity label exceeds threshold → bullying.
         
         Args:
             text: Input text
@@ -200,7 +207,7 @@ class ToxicityDetector:
             Tuple of (label, confidence, bullying_probability)
             - label: 0=safe, 1=bullying
             - confidence: probability of predicted class
-            - bullying_probability: raw probability of bullying class
+            - bullying_probability: max toxicity probability across all 6 labels
         """
         try:
             inputs = self.secondary_tokenizer(
@@ -214,16 +221,18 @@ class ToxicityDetector:
             with torch.no_grad():
                 outputs = self.secondary_model(**inputs)
                 logits = outputs.logits
-                probs = torch.softmax(logits, dim=-1)
+                # Multi-label → use SIGMOID, not softmax
+                probs = torch.sigmoid(logits)
             
-            # Get probabilities for both classes
-            safe_prob = probs[0][0].item()
-            bullying_prob = probs[0][1].item()
+            # Get max probability across all 6 toxicity labels
+            # All 6 labels are forms of toxicity, so max = overall toxicity
+            all_probs = probs[0].tolist()
+            bullying_prob = max(all_probs)
             
-            # Apply optimal threshold
+            # Apply threshold
             threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
             predicted_label = 1 if bullying_prob >= threshold else 0
-            confidence = bullying_prob if predicted_label == 1 else safe_prob
+            confidence = bullying_prob if predicted_label == 1 else (1 - bullying_prob)
             
             return predicted_label, confidence, bullying_prob
             
@@ -238,13 +247,13 @@ class ToxicityDetector:
         models_agree: bool, confidence_gap: float
     ) -> Tuple[int, float, float, str]:
         """
-        Ensemble decision logic that PRIORITIZES the primary (finetuned) model.
+        Ensemble decision logic using WEIGHTED AVERAGING of both models.
         
         Strategy:
-        1. If both models agree -> trust them (use higher confidence)
-        2. If models disagree -> ALWAYS trust the primary (finetuned) model
-           The primary model is custom-trained on the user's dataset and
-           takes priority over the generic secondary model.
+        1. If both models agree → trust them (use higher confidence)
+        2. If models disagree → use weighted average of bullying probabilities
+           Primary (finetuned) gets 60% weight, Secondary (toxic-bert) gets 40%.
+           This prevents an overfitting primary from classifying everything as toxic.
         
         Returns:
             Tuple of (final_label, final_confidence, final_bully_prob, source)
@@ -257,14 +266,27 @@ class ToxicityDetector:
             else:
                 return secondary_label, secondary_conf, secondary_bully_prob, "local_ensemble"
         
-        # Case 2: Models disagree -> ALWAYS trust the primary (finetuned) model
-        # The finetuned model is trained on domain-specific data and should
-        # take priority over the generic toxic-bert model.
-        logger.info(
-            f"Models disagree — trusting primary (finetuned) model: "
-            f"L{primary_label}({primary_conf:.2f}) over secondary L{secondary_label}({secondary_conf:.2f})"
+        # Case 2: Models disagree → use weighted average
+        # Primary model gets 60% weight, secondary gets 40%
+        PRIMARY_WEIGHT = 0.6
+        SECONDARY_WEIGHT = 0.4
+        
+        weighted_bully_prob = (
+            PRIMARY_WEIGHT * primary_bully_prob + 
+            SECONDARY_WEIGHT * secondary_bully_prob
         )
-        return primary_label, primary_conf, primary_bully_prob, "primary_priority"
+        
+        threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
+        final_label = 1 if weighted_bully_prob >= threshold else 0
+        final_confidence = weighted_bully_prob if final_label == 1 else (1 - weighted_bully_prob)
+        
+        logger.info(
+            f"Models disagree — weighted avg: "
+            f"primary L{primary_label}({primary_bully_prob:.2f})*{PRIMARY_WEIGHT} + "
+            f"secondary L{secondary_label}({secondary_bully_prob:.2f})*{SECONDARY_WEIGHT} "
+            f"= {weighted_bully_prob:.2f} → L{final_label}"
+        )
+        return final_label, final_confidence, weighted_bully_prob, "weighted_ensemble"
     
     def _should_trigger_gemini(
         self,
