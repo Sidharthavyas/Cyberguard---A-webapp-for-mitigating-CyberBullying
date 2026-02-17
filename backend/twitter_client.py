@@ -83,14 +83,12 @@ class TwitterClient:
         Args:
             oauth2_access_token: User's OAuth2 bearer token from login
         """
-        # OAuth2 PKCE tokens use the same Bearer header as app tokens.
-        # Twitter distinguishes user vs app tokens server-side.
-        # IMPORTANT: Keep consumer_key/secret — tweepy needs them for
-        # user-context write operations (e.g. delete_tweet).
+        # OAuth2 PKCE user tokens work as Bearer tokens with user-context
+        # permissions.  Create a clean client with ONLY the bearer token.
+        # Do NOT pass consumer_key/secret here — it confuses tweepy's auth
+        # selection and causes 403 "Authenticating with Unknown".
         self.client = tweepy.Client(
             bearer_token=oauth2_access_token,
-            consumer_key=self.client_id,
-            consumer_secret=self.client_secret,
             wait_on_rate_limit=False
         )
         
@@ -178,7 +176,11 @@ class TwitterClient:
             True if successful, False otherwise
         """
         try:
-            response = self.client.delete_tweet(tweet_id)
+            # user_auth=False forces Bearer token auth.  When the bearer
+            # token is an OAuth2 User Access Token (from PKCE login), this
+            # gives user-context write permissions without needing OAuth 1.0a
+            # consumer keys.
+            response = self.client.delete_tweet(tweet_id, user_auth=False)
             
             if response.data and response.data.get('deleted'):
                 logger.info(f"Successfully deleted tweet {tweet_id}")
