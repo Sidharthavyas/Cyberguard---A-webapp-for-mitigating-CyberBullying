@@ -238,14 +238,13 @@ class ToxicityDetector:
         models_agree: bool, confidence_gap: float
     ) -> Tuple[int, float, float, str]:
         """
-        Enhanced ensemble decision logic using weighted voting.
+        Ensemble decision logic that PRIORITIZES the primary (finetuned) model.
         
         Strategy:
-        1. If both models agree with high confidence -> trust them
-        2. If models disagree -> use weighted voting based on confidence
-        3. If one model is very confident -> trust it more
-        
-        No language-specific hardcoding - works for all 40k+ multilingual dataset.
+        1. If both models agree -> trust them (use higher confidence)
+        2. If models disagree -> ALWAYS trust the primary (finetuned) model
+           The primary model is custom-trained on the user's dataset and
+           takes priority over the generic secondary model.
         
         Returns:
             Tuple of (final_label, final_confidence, final_bully_prob, source)
@@ -258,35 +257,14 @@ class ToxicityDetector:
             else:
                 return secondary_label, secondary_conf, secondary_bully_prob, "local_ensemble"
         
-        # Case 2: Models disagree - Use weighted voting
-        # Weight by confidence and bullying probability
-        primary_weight = primary_conf * (1 + primary_bully_prob)
-        secondary_weight = secondary_conf * (1 + secondary_bully_prob)
-        
-        # If one model is significantly more confident, trust it
-        confidence_ratio = max(primary_conf, secondary_conf) / (min(primary_conf, secondary_conf) + 0.01)
-        
-        if confidence_ratio > 1.5:  # One model is 50% more confident
-            if primary_conf > secondary_conf:
-                return primary_label, primary_conf, primary_bully_prob, "local_ensemble_weighted"
-            else:
-                return secondary_label, secondary_conf, secondary_bully_prob, "local_ensemble_weighted"
-        
-        # Otherwise, use weighted average of bullying probabilities
-        total_weight = primary_weight + secondary_weight
-        weighted_bully_prob = (
-            (primary_bully_prob * primary_weight + secondary_bully_prob * secondary_weight) 
-            / total_weight
+        # Case 2: Models disagree -> ALWAYS trust the primary (finetuned) model
+        # The finetuned model is trained on domain-specific data and should
+        # take priority over the generic toxic-bert model.
+        logger.info(
+            f"Models disagree — trusting primary (finetuned) model: "
+            f"L{primary_label}({primary_conf:.2f}) over secondary L{secondary_label}({secondary_conf:.2f})"
         )
-        
-        # Apply threshold to weighted probability
-        threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
-        final_label = 1 if weighted_bully_prob >= threshold else 0
-        
-        # Confidence is the average of both confidences
-        final_confidence = (primary_conf + secondary_conf) / 2
-        
-        return final_label, final_confidence, weighted_bully_prob, "local_ensemble_weighted"
+        return primary_label, primary_conf, primary_bully_prob, "primary_priority"
     
     def _should_trigger_gemini(
         self,
@@ -299,13 +277,13 @@ class ToxicityDetector:
         """
         Determine if Gemini fallback should be triggered.
         
-        Triggers Gemini when:
-        1. Models disagree on classification
-        2. Low confidence from ensemble (<0.7)
-        3. High confidence gap between models (>0.3)
-        4. Borderline case (probabilities near threshold)
+        Since the primary (finetuned) model is always prioritized,
+        Gemini is ONLY used when the primary model itself is uncertain:
+        1. Low confidence from primary model (<0.7)
+        2. Borderline case (primary probability near threshold)
         
-        Language-agnostic logic - no hardcoded rules.
+        Model disagreement alone does NOT trigger Gemini — the primary
+        model is trusted by design.
         
         Args:
             final_confidence: Final ensemble confidence
@@ -319,31 +297,21 @@ class ToxicityDetector:
         """
         # Get configurable thresholds
         min_confidence = float(os.getenv("GEMINI_MIN_CONFIDENCE", "0.7"))
-        max_confidence_gap = float(os.getenv("GEMINI_MAX_GAP", "0.3"))
         threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
         borderline_margin = float(os.getenv("GEMINI_BORDERLINE_MARGIN", "0.15"))
         
-        # Trigger conditions
+        # Only trigger when the PRIMARY model is uncertain
         low_confidence = final_confidence < min_confidence
-        high_gap = confidence_gap > max_confidence_gap
-        disagreement = not models_agree
         
-        # Check if either probability is near the threshold (borderline case)
-        is_borderline = (
-            abs(primary_bully_prob - threshold) < borderline_margin or
-            abs(secondary_bully_prob - threshold) < borderline_margin
-        )
+        # Check if the primary model's probability is near the threshold
+        is_borderline = abs(primary_bully_prob - threshold) < borderline_margin
         
-        # Trigger if any condition is met
-        should_trigger = disagreement or low_confidence or high_gap or is_borderline
+        should_trigger = low_confidence or is_borderline
         
         if should_trigger:
-            logger.debug(
-                f"Gemini trigger analysis - "
-                f"Disagreement: {disagreement}, "
-                f"Low confidence: {low_confidence}, "
-                f"High gap: {high_gap}, "
-                f"Borderline: {is_borderline}"
+            logger.info(
+                f"Gemini trigger: low_confidence={low_confidence}, "
+                f"borderline={is_borderline} (primary_prob={primary_bully_prob:.2f})"
             )
         
         return should_trigger

@@ -85,8 +85,12 @@ class TwitterClient:
         """
         # OAuth2 PKCE tokens use the same Bearer header as app tokens.
         # Twitter distinguishes user vs app tokens server-side.
+        # IMPORTANT: Keep consumer_key/secret — tweepy needs them for
+        # user-context write operations (e.g. delete_tweet).
         self.client = tweepy.Client(
             bearer_token=oauth2_access_token,
+            consumer_key=self.client_id,
+            consumer_secret=self.client_secret,
             wait_on_rate_limit=False
         )
         
