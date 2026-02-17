@@ -256,12 +256,15 @@ async def update_settings(user_id: str, payload: Dict[str, Any]):
 async def get_connected_platforms():
     """
     Get list of currently connected platforms.
+    Checks both active pollers AND Redis sessions.
     
     Returns:
         List of connected platform names
     """
     from platform_manager import get_platform_manager
     from unified_poller import get_connected_platforms
+    import redis
+    import json
     
     platform_manager = get_platform_manager()
     active = platform_manager.get_connected_platforms()
@@ -269,14 +272,31 @@ async def get_connected_platforms():
     # Also get stored platforms from Redis
     stored = get_connected_platforms()
     
+    # Also check Redis sessions for logged-in platforms
+    redis_url = os.getenv("REDIS_URL")
+    discord_session = False
+    twitter_session = False
+    if redis_url:
+        try:
+            r = redis.from_url(redis_url)
+            if r.get("session:discord"):
+                discord_session = True
+            if r.get("session:twitter"):
+                twitter_session = True
+        except Exception:
+            pass
+    
     return {
         "active_pollers": active,
         "configured_platforms": list(stored.keys()),
         "platforms": {
-            "twitter": {"enabled": True, "status": "active"},
+            "twitter": {
+                "enabled": twitter_session or "twitter" in active,
+                "status": "active" if twitter_session else "inactive"
+            },
             "discord": {
-                "enabled": "discord" in active,
-                "status": "active" if "discord" in active else "inactive"
+                "enabled": discord_session or "discord" in active,
+                "status": "active" if ("discord" in active or discord_session) else "inactive"
             }
         }
     }
