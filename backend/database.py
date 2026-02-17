@@ -2,11 +2,12 @@
 MongoDB database module for CyberGuard.
 Provides persistent storage for moderation events, platform messages,
 user sessions, and metrics. Uses motor (async MongoDB driver).
+Includes auto-cleanup to prevent unbounded growth.
 """
 
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -41,8 +42,10 @@ async def init_mongodb():
 
         logger.info(f"✓ Connected to MongoDB database: {_db.name}")
 
-        # Create indexes for fast queries
+        # Create indexes for fast queries + TTL cleanup
         await _create_indexes()
+        # Run cleanup on startup to trim old records
+        await cleanup_old_records()
         return True
     except Exception as e:
         logger.error(f"Failed to connect to MongoDB: {e}")
@@ -51,8 +54,14 @@ async def init_mongodb():
         return False
 
 
+# Max records to keep per collection (prevents unbounded growth)
+MAX_RECORDS = int(os.getenv("MAX_MONGO_RECORDS", "5000"))
+# Auto-expire records older than this (days)
+TTL_DAYS = int(os.getenv("MONGO_TTL_DAYS", "7"))
+
+
 async def _create_indexes():
-    """Create indexes for efficient querying."""
+    """Create indexes for efficient querying + TTL auto-expiry."""
     if _db is None:
         return
 
@@ -63,6 +72,12 @@ async def _create_indexes():
     await _db.moderation_events.create_index([("timestamp", -1)])
     await _db.moderation_events.create_index([("platform", 1)])
     await _db.moderation_events.create_index([("action", 1)])
+    # TTL index: auto-delete records older than TTL_DAYS
+    await _db.moderation_events.create_index(
+        [("saved_at", 1)],
+        expireAfterSeconds=TTL_DAYS * 86400,
+        name="ttl_saved_at"
+    )
 
     # platform_messages: unique by platform_id + platform
     await _db.platform_messages.create_index(
@@ -70,11 +85,50 @@ async def _create_indexes():
     )
     await _db.platform_messages.create_index([("fetched_at", -1)])
     await _db.platform_messages.create_index([("platform", 1)])
+    # TTL index: auto-delete records older than TTL_DAYS
+    await _db.platform_messages.create_index(
+        [("fetched_at", 1)],
+        expireAfterSeconds=TTL_DAYS * 86400,
+        name="ttl_fetched_at"
+    )
 
     # user_sessions: unique by platform
     await _db.user_sessions.create_index([("platform", 1)], unique=True)
 
-    logger.info("✓ MongoDB indexes created")
+    logger.info(f"✓ MongoDB indexes created (TTL: {TTL_DAYS}d, cap: {MAX_RECORDS})")
+
+
+async def cleanup_old_records():
+    """
+    Enforce record cap — delete oldest records beyond MAX_RECORDS.
+    TTL handles time-based expiry, this handles count-based cap.
+    Runs on startup and can be called periodically.
+    """
+    if _db is None:
+        return
+
+    try:
+        for collection_name, sort_field in [
+            ("moderation_events", "saved_at"),
+            ("platform_messages", "fetched_at"),
+        ]:
+            collection = _db[collection_name]
+            count = await collection.count_documents({})
+            if count > MAX_RECORDS:
+                excess = count - MAX_RECORDS
+                # Find the oldest 'excess' docs and delete them
+                oldest = await collection.find(
+                    {}, {"_id": 1}
+                ).sort(sort_field, 1).limit(excess).to_list(length=excess)
+                
+                ids = [doc["_id"] for doc in oldest]
+                result = await collection.delete_many({"_id": {"$in": ids}})
+                logger.info(
+                    f"🗑 Cleaned {result.deleted_count} old records from {collection_name} "
+                    f"({count} → {count - result.deleted_count})"
+                )
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
 
 
 def is_connected() -> bool:

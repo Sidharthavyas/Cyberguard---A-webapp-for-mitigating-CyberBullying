@@ -1,216 +1,63 @@
 """
-ML inference pipeline for multilingual toxicity detection.
-Uses ensemble of two models running locally on CPU (free tier).
-Enhanced with intelligent ensemble logic and Gemini tiebreaker.
+ML inference pipeline for multilingual cyberbullying detection.
+Uses a single finetuned MuRIL model — no ensemble, no Gemini.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import logging
-from typing import Tuple, Dict
+from typing import Dict
 from langdetect import detect, LangDetectException
-
 import os
-import google.generativeai as genai
-from typing import Tuple, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
-class GeminiModerator:
-    """Fallback moderator using Google's Gemini Flash."""
-    
-    def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY")
-        self.model_name = "gemini-2.5-flash"  # Updated to 2026 model
-        self.initialized = False
-        
-        if self.api_key:
-            try:
-                genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel(self.model_name)
-                self.initialized = True
-                logger.info(f"✓ Gemini Moderator initialized with model: {self.model_name}")
-            except Exception as e:
-                logger.error(f"Failed to initialize Gemini: {e}")
-        else:
-            logger.warning("GEMINI_API_KEY not found. Fallback moderation disabled.")
-    
-    def analyze(self, text: str) -> Optional[Dict]:
-        """
-        Analyze text using Gemini API.
-        
-        Returns:
-            Dict with 'abuse_level' (1-5) and 'confidence' (0.0-1.0)
-            or None if API call fails.
-        """
-        if not self.initialized:
-            return None
-            
-        try:
-            prompt = f"""
-            Analyze the toxicity of the following text on a scale of 1 to 5.
-            
-            1: Safe, non-toxic, friendly, or neutral.
-            2: Low risk, mild criticism, sarcasm without malice.
-            3: Flagged, potentially offensive, rude, heated argument.
-            4: High risk, hate speech, severe insults, harassment.
-            5: Severe, dangerous content, explicit threats, extreme hate speech.
-            
-            Text: "{text}"
-            
-            Return ONLY a JSON object with two fields: "level" (integer 1-5) and "confidence" (float 0.0-1.0).
-            """
-            
-            response = self.model.generate_content(prompt)
-            result_text = response.text.strip()
-            
-            # Simple parsing of the JSON-like response
-            # Using clean string manipulation to avoid JSON parse errors from LLM extra text
-            import json
-            import re
-            
-            # Find JSON pattern
-            match = re.search(r'\{.*\}', result_text, re.DOTALL)
-            if match:
-                json_str = match.group(0)
-                data = json.loads(json_str)
-                return {
-                    "abuse_level": int(data.get("level", 1)),
-                    "confidence": float(data.get("confidence", 0.0))
-                }
-            else:
-                logger.warning(f"Could not parse Gemini response: {result_text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Gemini API error: {e}")
-            return None
-
-
 class ToxicityDetector:
-    """Ensemble toxicity detection using two local models with enhanced logic."""
+    """Cyberbullying detection using finetuned MuRIL model."""
     
     def __init__(self):
         self.device = "cpu"  # FREE TIER: CPU-only inference
         logger.info(f"Using device: {self.device}")
         
-        # Initialize Gemini for fallback
-        self.gemini = GeminiModerator()
-        
-        # Primary model: Fine-tuned MuRIL for Indian languages
-        logger.info("Loading primary model: Sidhartha2004/finetuned_cyberbullying_muril")
+        # Load finetuned MuRIL model
+        MODEL_NAME = "Sidhartha2004/finetuned_cyberbullying_muril"
+        logger.info(f"Loading model: {MODEL_NAME}")
         try:
-            self.primary_tokenizer = AutoTokenizer.from_pretrained(
-                "Sidhartha2004/finetuned_cyberbullying_muril"
-            )
-            self.primary_model = AutoModelForSequenceClassification.from_pretrained(
-                "Sidhartha2004/finetuned_cyberbullying_muril"
+            self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                MODEL_NAME
             ).to(self.device)
-            self.primary_model.eval()
-            logger.info("✓ Primary model loaded successfully")
+            self.model.eval()
+            logger.info("✓ Model loaded successfully")
         except Exception as e:
-            logger.error(f"Failed to load primary model: {e}")
+            logger.error(f"Failed to load model: {e}")
             raise
         
-        # Secondary model: Toxic-BERT for English
-        logger.info("Loading secondary model: unitary/toxic-bert")
-        try:
-            self.secondary_tokenizer = AutoTokenizer.from_pretrained(
-                "unitary/toxic-bert"
-            )
-            self.secondary_model = AutoModelForSequenceClassification.from_pretrained(
-                "unitary/toxic-bert"
-            ).to(self.device)
-            self.secondary_model.eval()
-            logger.info("✓ Secondary model loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load secondary model: {e}")
-            raise
-        
-        logger.info("All models loaded and ready for inference")
+        logger.info("Model ready for inference")
     
     def detect_language(self, text: str) -> str:
-        """
-        Detect language of input text.
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            ISO language code (e.g., 'en', 'hi', 'te')
-        """
+        """Detect language of input text."""
         try:
-            lang = detect(text)
-            return lang
+            return detect(text)
         except LangDetectException:
             logger.warning("Could not detect language, defaulting to 'unknown'")
             return "unknown"
     
-    def _primary_inference(self, text: str) -> Tuple[int, float, float]:
+    def _inference(self, text: str) -> tuple:
         """
-        Run inference on primary model (MuRIL) with optimal threshold.
+        Run inference on finetuned MuRIL model.
+        
+        Model config: id2label = {0: "Safe", 1: "Bullying"}
         
         Args:
-            text: Input text
+            text: Input text (should be cleaned — no @mentions/URLs)
             
         Returns:
             Tuple of (label, confidence, bullying_probability)
-            - label: 0=safe, 1=bullying
-            - confidence: probability of predicted class
-            - bullying_probability: raw probability of bullying class
         """
         try:
-            inputs = self.primary_tokenizer(
-                text,
-                return_tensors="pt",
-                truncation=True,
-                max_length=128,  # Optimal for MuRIL
-                padding=True
-            ).to(self.device)
-            
-            with torch.no_grad():
-                outputs = self.primary_model(**inputs)
-                logits = outputs.logits
-                probs = torch.softmax(logits, dim=-1)
-            
-            # Get probabilities for both classes
-            safe_prob = probs[0][0].item()
-            bullying_prob = probs[0][1].item()
-            
-            # Apply optimal threshold (default 0.5, configurable via env)
-            threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
-            predicted_label = 1 if bullying_prob >= threshold else 0
-            confidence = bullying_prob if predicted_label == 1 else safe_prob
-            
-            return predicted_label, confidence, bullying_prob
-            
-        except Exception as e:
-            logger.error(f"Primary model inference error: {e}")
-            return 0, 0.0, 0.0
-    
-    def _secondary_inference(self, text: str) -> Tuple[int, float, float]:
-        """
-        Run inference on secondary model (Toxic-BERT).
-        
-        toxic-bert is a MULTI-LABEL model with 6 outputs:
-          0: toxic, 1: severe_toxic, 2: obscene, 
-          3: threat, 4: insult, 5: identity_hate
-        
-        Uses SIGMOID (not softmax) since each label is independent.
-        If ANY toxicity label exceeds threshold → bullying.
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Tuple of (label, confidence, bullying_probability)
-            - label: 0=safe, 1=bullying
-            - confidence: probability of predicted class
-            - bullying_probability: max toxicity probability across all 6 labels
-        """
-        try:
-            inputs = self.secondary_tokenizer(
+            inputs = self.tokenizer(
                 text,
                 return_tensors="pt",
                 truncation=True,
@@ -219,218 +66,62 @@ class ToxicityDetector:
             ).to(self.device)
             
             with torch.no_grad():
-                outputs = self.secondary_model(**inputs)
+                outputs = self.model(**inputs)
                 logits = outputs.logits
-                # Multi-label → use SIGMOID, not softmax
-                probs = torch.sigmoid(logits)
+                probs = torch.softmax(logits, dim=-1)
             
-            # Get max probability across all 6 toxicity labels
-            # All 6 labels are forms of toxicity, so max = overall toxicity
-            all_probs = probs[0].tolist()
-            bullying_prob = max(all_probs)
+            safe_prob = probs[0][0].item()
+            bullying_prob = probs[0][1].item()
             
-            # Apply threshold
+            # Apply configurable threshold
             threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
             predicted_label = 1 if bullying_prob >= threshold else 0
-            confidence = bullying_prob if predicted_label == 1 else (1 - bullying_prob)
+            confidence = bullying_prob if predicted_label == 1 else safe_prob
             
             return predicted_label, confidence, bullying_prob
             
         except Exception as e:
-            logger.error(f"Secondary model inference error: {e}")
+            logger.error(f"Model inference error: {e}")
             return 0, 0.0, 0.0
-    
-    def _ensemble_decision(
-        self, 
-        primary_label: int, primary_conf: float, primary_bully_prob: float,
-        secondary_label: int, secondary_conf: float, secondary_bully_prob: float,
-        models_agree: bool, confidence_gap: float
-    ) -> Tuple[int, float, float, str]:
-        """
-        Ensemble decision logic using WEIGHTED AVERAGING of both models.
-        
-        Strategy:
-        1. If both models agree → trust them (use higher confidence)
-        2. If models disagree → use weighted average of bullying probabilities
-           Primary (finetuned) gets 60% weight, Secondary (toxic-bert) gets 40%.
-           This prevents an overfitting primary from classifying everything as toxic.
-        
-        Returns:
-            Tuple of (final_label, final_confidence, final_bully_prob, source)
-        """
-        # Case 1: Both models agree
-        if models_agree:
-            # Use the higher confidence
-            if primary_conf >= secondary_conf:
-                return primary_label, primary_conf, primary_bully_prob, "local_ensemble"
-            else:
-                return secondary_label, secondary_conf, secondary_bully_prob, "local_ensemble"
-        
-        # Case 2: Models disagree → use weighted average
-        # Primary model gets 60% weight, secondary gets 40%
-        PRIMARY_WEIGHT = 0.6
-        SECONDARY_WEIGHT = 0.4
-        
-        weighted_bully_prob = (
-            PRIMARY_WEIGHT * primary_bully_prob + 
-            SECONDARY_WEIGHT * secondary_bully_prob
-        )
-        
-        threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
-        final_label = 1 if weighted_bully_prob >= threshold else 0
-        final_confidence = weighted_bully_prob if final_label == 1 else (1 - weighted_bully_prob)
-        
-        logger.info(
-            f"Models disagree — weighted avg: "
-            f"primary L{primary_label}({primary_bully_prob:.2f})*{PRIMARY_WEIGHT} + "
-            f"secondary L{secondary_label}({secondary_bully_prob:.2f})*{SECONDARY_WEIGHT} "
-            f"= {weighted_bully_prob:.2f} → L{final_label}"
-        )
-        return final_label, final_confidence, weighted_bully_prob, "weighted_ensemble"
-    
-    def _should_trigger_gemini(
-        self,
-        final_confidence: float,
-        models_agree: bool,
-        confidence_gap: float,
-        primary_bully_prob: float,
-        secondary_bully_prob: float
-    ) -> bool:
-        """
-        Determine if Gemini fallback should be triggered.
-        
-        Since the primary (finetuned) model is always prioritized,
-        Gemini is ONLY used when the primary model itself is uncertain:
-        1. Low confidence from primary model (<0.7)
-        2. Borderline case (primary probability near threshold)
-        
-        Model disagreement alone does NOT trigger Gemini — the primary
-        model is trusted by design.
-        
-        Args:
-            final_confidence: Final ensemble confidence
-            models_agree: Whether models agree on label
-            confidence_gap: Absolute difference in bullying probabilities
-            primary_bully_prob: Primary model bullying probability
-            secondary_bully_prob: Secondary model bullying probability
-            
-        Returns:
-            True if Gemini should be triggered, False otherwise
-        """
-        # Get configurable thresholds
-        min_confidence = float(os.getenv("GEMINI_MIN_CONFIDENCE", "0.7"))
-        threshold = float(os.getenv("OPTIMAL_THRESHOLD", "0.5"))
-        borderline_margin = float(os.getenv("GEMINI_BORDERLINE_MARGIN", "0.15"))
-        
-        # Only trigger when the PRIMARY model is uncertain
-        low_confidence = final_confidence < min_confidence
-        
-        # Check if the primary model's probability is near the threshold
-        is_borderline = abs(primary_bully_prob - threshold) < borderline_margin
-        
-        should_trigger = low_confidence or is_borderline
-        
-        if should_trigger:
-            logger.info(
-                f"Gemini trigger: low_confidence={low_confidence}, "
-                f"borderline={is_borderline} (primary_prob={primary_bully_prob:.2f})"
-            )
-        
-        return should_trigger
     
     def analyze(self, text: str) -> Dict:
         """
-        Analyze text for toxicity using enhanced ensemble ML models and Gemini fallback.
-        Uses binary classification: 0=safe, 1=bullying
-        
-        Enhanced ensemble logic:
-        - Weighted voting based on model confidence
-        - Agreement analysis between models
-        - Smart Gemini fallback for edge cases
-        - No hardcoded language-specific rules (works for all 40+ languages)
+        Analyze text for cyberbullying using finetuned MuRIL.
+        Binary classification: 0=safe, 1=bullying
         
         Args:
-            text: Input text to analyze
+            text: Input text to analyze (pre-cleaned by moderation engine)
             
         Returns:
-            Dictionary with analysis results including binary label
+            Dictionary with analysis results
         """
         # Detect language
         language = self.detect_language(text)
         
-        # Run both local ML models
-        primary_label, primary_conf, primary_bully_prob = self._primary_inference(text)
-        secondary_label, secondary_conf, secondary_bully_prob = self._secondary_inference(text)
-        
-        # Calculate model agreement
-        models_agree = (primary_label == secondary_label)
-        confidence_gap = abs(primary_bully_prob - secondary_bully_prob)
-        
-        # Enhanced ensemble decision logic
-        final_label, final_confidence, final_bully_prob, source = self._ensemble_decision(
-            primary_label, primary_conf, primary_bully_prob,
-            secondary_label, secondary_conf, secondary_bully_prob,
-            models_agree, confidence_gap
-        )
-        
-        # GEMINI FALLBACK LOGIC - Only for uncertain or disagreement cases
-        should_use_gemini = self._should_trigger_gemini(
-            final_confidence, models_agree, confidence_gap, 
-            primary_bully_prob, secondary_bully_prob
-        )
-        
-        if should_use_gemini and self.gemini.initialized:
-            logger.info(
-                f"Triggering Gemini fallback - "
-                f"Confidence: {final_confidence:.2f}, "
-                f"Agreement: {models_agree}, "
-                f"Gap: {confidence_gap:.2f}"
-            )
-            gemini_result = self.gemini.analyze(text)
-            
-            if gemini_result:
-                # Gemini returns 1-5, convert to binary (1-2=safe, 3-5=bullying)
-                gemini_level = gemini_result['abuse_level']
-                gemini_conf = gemini_result['confidence']
-                gemini_label = 1 if gemini_level >= 3 else 0
-                
-                # Use Gemini as tiebreaker or confidence booster
-                if gemini_conf > 0.75:  # Only trust high-confidence Gemini results
-                    # If models disagree, use Gemini as tiebreaker
-                    if not models_agree:
-                        final_label = gemini_label
-                        final_confidence = gemini_conf
-                        final_bully_prob = gemini_conf if gemini_label == 1 else (1 - gemini_conf)
-                        source = "gemini_tiebreaker"
-                        logger.info(f"Gemini tiebreaker: Label {gemini_label} ({gemini_conf:.2f})")
-                    # If models agree but low confidence, boost confidence
-                    elif final_confidence < 0.7 and gemini_label == final_label:
-                        # Average the confidences for a more reliable score
-                        final_confidence = (final_confidence + gemini_conf) / 2
-                        source = "gemini_boosted"
-                        logger.info(f"Gemini confidence boost: {final_confidence:.2f}")
+        # Run model inference
+        label, confidence, bullying_prob = self._inference(text)
         
         logger.info(
-            f"Analysis complete ({source}) - Language: {language}, "
-            f"Primary: L{primary_label}({primary_conf:.2f}), "
-            f"Secondary: L{secondary_label}({secondary_conf:.2f}), "
-            f"Final: L{final_label}({final_confidence:.2f}), "
-            f"Agreement: {models_agree}"
+            f"Analysis — Language: {language}, "
+            f"Label: {'BULLYING' if label == 1 else 'SAFE'}, "
+            f"Confidence: {confidence:.2f}, "
+            f"Bullying prob: {bullying_prob:.2f}"
         )
         
         return {
             "language": language,
-            "label": final_label,  # 0=safe, 1=bullying
-            "label_name": "BULLYING" if final_label == 1 else "SAFE",
-            "confidence": final_confidence,
-            "bullying_probability": final_bully_prob,
-            "primary_label": primary_label,
-            "primary_confidence": primary_conf,
-            "secondary_label": secondary_label,
-            "secondary_confidence": secondary_conf,
-            "models_agree": models_agree,
-            "confidence_gap": confidence_gap,
-            "source": source
+            "label": label,                    # 0=safe, 1=bullying
+            "label_name": "BULLYING" if label == 1 else "SAFE",
+            "confidence": confidence,
+            "bullying_probability": bullying_prob,
+            # Keep these keys for backward compatibility with moderation.py
+            "primary_label": label,
+            "primary_confidence": confidence,
+            "secondary_label": label,          # Same as primary (no secondary)
+            "secondary_confidence": confidence,
+            "models_agree": True,              # Only one model
+            "confidence_gap": 0.0,
+            "source": "finetuned_muril"
         }
 
 
