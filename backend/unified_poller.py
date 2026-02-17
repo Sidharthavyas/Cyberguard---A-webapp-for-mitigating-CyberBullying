@@ -184,3 +184,17 @@ async def shutdown_all_pollers():
     """Shutdown all platform pollers"""
     platform_manager = get_platform_manager()
     await platform_manager.shutdown()
+
+
+def get_platform_client(platform: str):
+    """
+    Get the active client for a platform.
+    
+    Args:
+        platform: Platform name (discord, twitter)
+        
+    Returns:
+        Platform client instance or None
+    """
+    platform_manager = get_platform_manager()
+    return platform_manager.get_client(platform)

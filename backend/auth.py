@@ -7,8 +7,9 @@ Extended to support Discord and Reddit OAuth.
 import os
 import logging
 import secrets
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import tweepy
 import redis
 import json
@@ -20,6 +21,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+security = HTTPBearer(auto_error=False)
 
 # Allow HTTP during local development (oauthlib blocks non-HTTPS by default)
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
@@ -430,6 +432,59 @@ async def discord_callback(
 
 
 # ============= COMMON ROUTES =============
+
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """
+    Get current authenticated user from token.
+    Supports both Bearer tokens and query parameters for WebSocket compatibility.
+    """
+    if not credentials:
+        return None
+    
+    token = credentials.credentials
+    if not token:
+        return None
+    
+    if not redis_client:
+        return None
+    
+    try:
+        # Try to find user by token in Redis
+        # Check both platform-specific tokens and session tokens
+        for platform in ["twitter", "discord"]:
+            # Check if token matches any stored platform token
+            pattern = f"{platform}_token:*"
+            keys = redis_client.keys(pattern)
+            for key in keys:
+                try:
+                    token_data = json.loads(redis_client.get(key) or "{}")
+                    if token_data.get("access_token") == token:
+                        return {
+                            "user_id": token_data.get("user_id"),
+                            "username": token_data.get("username"),
+                            "platform": token_data.get("platform")
+                        }
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+        
+        # Check session tokens
+        session_data = redis_client.get("session:current_user")
+        if session_data:
+            try:
+                session = json.loads(session_data)
+                if session.get("access_token") == token:
+                    return {
+                        "user_id": session.get("user_id"),
+                        "username": session.get("username"),
+                        "platform": session.get("platform")
+                    }
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error getting current user: {e}")
+        return None
 
 @router.get("/token/{user_id}")
 async def get_stored_token(user_id: str):

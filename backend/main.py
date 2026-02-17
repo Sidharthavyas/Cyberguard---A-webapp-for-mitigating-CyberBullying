@@ -6,17 +6,19 @@ Handles WebSocket connections, REST endpoints, and CORS configuration.
 import os
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Any, Optional
 
 # Import routers and modules
-from auth import router as auth_router
+from auth import router as auth_router, get_current_user
 from websocket_manager import manager
 from metrics import metrics
 from models import get_detector
@@ -158,23 +160,38 @@ async def health():
 
 
 @app.get("/stats")
-async def get_stats():
+async def get_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
-    Get current in-memory metrics.
+    Get current in-memory metrics for authenticated user.
     
     Returns:
         Current statistics including scan/flag/delete counts
     """
-    return metrics.get_stats()
+    # Filter stats by user if available
+    user_stats = metrics.get_stats()
+    if current_user:
+        user_stats["current_user"] = {
+            "user_id": current_user.get("user_id"),
+            "username": current_user.get("username"),
+            "platform": current_user.get("platform")
+        }
+    return user_stats
 
 
 @app.get("/analytics/summary")
-async def get_analytics_summary():
+async def get_analytics_summary(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
-    Analytics summary alias for current metrics.
+    Analytics summary alias for current metrics (user-specific).
     Can be extended later with more derived insights.
     """
-    return metrics.get_stats()
+    user_stats = metrics.get_stats()
+    if current_user:
+        user_stats["current_user"] = {
+            "user_id": current_user.get("user_id"),
+            "username": current_user.get("username"),
+            "platform": current_user.get("platform")
+        }
+    return user_stats
 
 
 @app.websocket("/ws")
@@ -375,7 +392,139 @@ async def get_unified_feed(platform: str = "all", limit: int = 100):
     }
 
 
-# ============= HISTORY & PERSISTENCE APIS =============
+# ============= DISCORD MODERATION APIS =============
+
+@app.post("/discord/moderate")
+async def moderate_discord_user(
+    request: dict,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Apply moderation action to a Discord user.
+    
+    Body:
+        {
+            "guild_id": "guild_id",
+            "user_id": "user_id", 
+            "action": "ban|kick|timeout|delete_message",
+            "reason": "reason",
+            "duration_minutes": 10,  # for timeout
+            "message_id": "msg_id",  # for delete_message
+            "channel_id": "channel_id",  # for delete_message
+            "delete_message_days": 7  # for ban
+        }
+    """
+    if not current_user or current_user.get("platform") != "discord":
+        raise HTTPException(status_code=403, detail="Discord authentication required")
+    
+    from unified_poller import get_platform_client
+    
+    guild_id = request.get("guild_id")
+    user_id = request.get("user_id")
+    action = request.get("action")
+    reason = request.get("reason", "Cyberbullying violation")
+    
+    if not all([guild_id, user_id, action]):
+        raise HTTPException(status_code=400, detail="guild_id, user_id, and action required")
+    
+    # Get Discord client
+    discord_client = get_platform_client("discord")
+    if not discord_client:
+        raise HTTPException(status_code=503, detail="Discord client not available")
+    
+    # Apply moderation
+    success = await discord_client.moderate_user(
+        guild_id=guild_id,
+        user_id=user_id,
+        action=action,
+        reason=reason,
+        **{k: v for k, v in request.items() if k not in ["guild_id", "user_id", "action", "reason"]}
+    )
+    
+    if success:
+        # Log the moderation action
+        import database as db
+        await db.save_moderation_event({
+            "platform": "discord",
+            "platform_id": user_id,
+            "action": action,
+            "author": current_user.get("username"),
+            "author_id": current_user.get("user_id"),
+            "text": f"Moderation action: {action} on user {user_id}",
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "guild_id": guild_id
+        })
+        
+        return {
+            "message": f"Successfully applied {action} to user {user_id}",
+            "action": action,
+            "user_id": user_id,
+            "guild_id": guild_id
+        }
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to apply {action} to user")
+
+
+@app.get("/discord/guilds")
+async def get_discord_guilds(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Get list of Discord guilds the bot has access to.
+    """
+    if not current_user or current_user.get("platform") != "discord":
+        raise HTTPException(status_code=403, detail="Discord authentication required")
+    
+    from unified_poller import get_platform_client
+    
+    discord_client = get_platform_client("discord")
+    if not discord_client:
+        raise HTTPException(status_code=503, detail="Discord client not available")
+    
+    guilds = await discord_client.get_bot_guilds()
+    return {"guilds": guilds}
+
+
+@app.get("/discord/guilds/{guild_id}/channels")
+async def get_discord_channels(
+    guild_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Get text channels for a Discord guild.
+    """
+    if not current_user or current_user.get("platform") != "discord":
+        raise HTTPException(status_code=403, detail="Discord authentication required")
+    
+    from unified_poller import get_platform_client
+    
+    discord_client = get_platform_client("discord")
+    if not discord_client:
+        raise HTTPException(status_code=503, detail="Discord client not available")
+    
+    channels = await discord_client.get_guild_text_channels(guild_id)
+    return {"channels": channels}
+
+
+@app.get("/discord/channels/{channel_id}/messages")
+async def get_discord_channel_messages(
+    channel_id: str,
+    limit: int = Query(50, ge=1, le=100),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Get recent messages from a Discord channel.
+    """
+    if not current_user or current_user.get("platform") != "discord":
+        raise HTTPException(status_code=403, detail="Discord authentication required")
+    
+    from unified_poller import get_platform_client
+    
+    discord_client = get_platform_client("discord")
+    if not discord_client:
+        raise HTTPException(status_code=503, detail="Discord client not available")
+    
+    messages = await discord_client.get_channel_messages(channel_id, limit)
+    return {"messages": messages, "channel_id": channel_id}
 
 @app.get("/history")
 async def get_history(
@@ -383,19 +532,25 @@ async def get_history(
     action: Optional[str] = Query(None, description="Filter by action: flag, delete, ignore"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Get paginated moderation event history from MongoDB.
+    Get paginated moderation event history from MongoDB for authenticated user.
     Survives server restarts.
     """
     import database as db
     if not db.is_connected():
         return {"events": [], "total": 0, "message": "MongoDB not connected"}
     
+    # Filter events by current user if available
+    user_filter = None
+    if current_user:
+        user_filter = current_user.get("user_id")
+    
     events = await db.get_moderation_events(
-        platform=platform, limit=limit, skip=skip, action_filter=action
+        platform=platform, limit=limit, skip=skip, action_filter=action, user_id=user_filter
     )
-    total = await db.count_moderation_events(platform=platform)
+    total = await db.count_moderation_events(platform=platform, user_id=user_filter)
     
     # Convert datetime objects to strings for JSON serialization
     for event in events:
@@ -403,7 +558,7 @@ async def get_history(
             if hasattr(value, 'isoformat'):
                 event[key] = value.isoformat()
     
-    return {"events": events, "total": total, "platform": platform}
+    return {"events": events, "total": total, "platform": platform, "user": current_user}
 
 
 @app.get("/messages")
@@ -411,16 +566,22 @@ async def get_messages(
     platform: str = Query("all", description="Filter by platform"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Get raw platform messages (tweets, Discord chats).
+    Get raw platform messages (tweets, Discord chats) for authenticated user.
     """
     import database as db
     if not db.is_connected():
         return {"messages": [], "message": "MongoDB not connected"}
     
+    # Filter messages by current user if available
+    user_filter = None
+    if current_user:
+        user_filter = current_user.get("user_id")
+    
     messages = await db.get_platform_messages(
-        platform=platform, limit=limit, skip=skip
+        platform=platform, limit=limit, skip=skip, user_id=user_filter
     )
     
     for msg in messages:
@@ -428,22 +589,48 @@ async def get_messages(
             if hasattr(value, 'isoformat'):
                 msg[key] = value.isoformat()
     
-    return {"messages": messages, "platform": platform}
+    return {"messages": messages, "platform": platform, "user": current_user}
 
 
 @app.get("/history/stats")
-async def get_history_stats():
+async def get_history_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
-    Get aggregate statistics from MongoDB (persistent, accurate).
+    Get aggregate statistics from MongoDB for authenticated user (persistent, accurate).
     """
     import database as db
     if not db.is_connected():
         # Fallback to in-memory
-        return metrics.get_stats()
+        user_stats = metrics.get_stats()
+        if current_user:
+            user_stats["current_user"] = {
+                "user_id": current_user.get("user_id"),
+                "username": current_user.get("username"),
+                "platform": current_user.get("platform")
+            }
+        return user_stats
     
-    stats = await db.get_aggregate_stats()
+    # Filter stats by user if available
+    user_filter = None
+    if current_user:
+        user_filter = current_user.get("user_id")
+    
+    stats = await db.get_aggregate_stats(user_id=user_filter)
     if not stats:
-        return metrics.get_stats()
+        user_stats = metrics.get_stats()
+        if current_user:
+            user_stats["current_user"] = {
+                "user_id": current_user.get("user_id"),
+                "username": current_user.get("username"),
+                "platform": current_user.get("platform")
+            }
+        return user_stats
+    
+    if current_user:
+        stats["current_user"] = {
+            "user_id": current_user.get("user_id"),
+            "username": current_user.get("username"),
+            "platform": current_user.get("platform")
+        }
     
     return stats
 

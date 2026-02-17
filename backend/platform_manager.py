@@ -123,6 +123,21 @@ class PlatformManager:
         """Check if a platform is connected"""
         return platform in self.connected_platforms
     
+    def get_client(self, platform: str):
+        """
+        Get the client instance for a platform.
+        
+        Args:
+            platform: Platform name
+            
+        Returns:
+            Platform client instance or None
+        """
+        poller = self.active_pollers.get(platform)
+        if poller and hasattr(poller, 'client'):
+            return poller.client
+        return None
+    
     async def shutdown(self):
         """Stop all pollers and cleanup"""
         logger.info("Shutting down all platform pollers...")

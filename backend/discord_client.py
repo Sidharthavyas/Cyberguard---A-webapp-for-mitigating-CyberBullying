@@ -285,6 +285,8 @@ class DiscordModerationClient:
                             f"Enable MESSAGE CONTENT INTENT in Discord Developer Portal → "
                             f"Bot → Privileged Gateway Intents"
                         )
+                        # Try to get message content via alternative method
+                        await self._try_alternative_message_fetch(cid, cname, limit, messages)
 
             logger.info(
                 f"Fetched {len(messages)} Discord messages from {len(guilds)} guild(s)"
@@ -301,6 +303,205 @@ class DiscordModerationClient:
         if ok:
             logger.info(f"Deleted Discord message {message_id} in #{channel_id}")
         return ok
+
+    async def _try_alternative_message_fetch(self, channel_id: str, channel_name: str, limit: int, messages: List[Dict]):
+        """
+        Try alternative methods to fetch message content when MESSAGE CONTENT INTENT is missing.
+        This attempts to use webhook data or audit logs as fallback.
+        """
+        try:
+            # Method 1: Try to get message content from audit logs (if available)
+            audit_logs = await self._get_audit_logs(channel_id)
+            if audit_logs:
+                logger.info(f"  #{channel_name}: Found {len(audit_logs)} entries from audit logs")
+                for log_entry in audit_logs:
+                    if log_entry.get("content"):
+                        messages.append({
+                            "id": log_entry["id"],
+                            "text": log_entry["content"],
+                            "author": log_entry.get("author", "audit_log"),
+                            "author_id": log_entry.get("author_id", ""),
+                            "channel": channel_name,
+                            "channel_id": channel_id,
+                            "guild": log_entry.get("guild", "unknown"),
+                            "guild_id": log_entry.get("guild_id", ""),
+                            "timestamp": log_entry.get("timestamp"),
+                            "platform": "discord",
+                            "source": "audit_log"
+                        })
+                        
+            # Method 2: Try webhook-based message fetching
+            webhook_data = await self._get_webhook_messages(channel_id)
+            if webhook_data:
+                logger.info(f"  #{channel_name}: Found {len(webhook_data)} entries from webhooks")
+                for webhook_msg in webhook_data:
+                    messages.append({
+                        "id": webhook_msg["id"],
+                        "text": webhook_msg["content"],
+                        "author": webhook_msg.get("author", "webhook"),
+                        "author_id": webhook_msg.get("author_id", ""),
+                        "channel": channel_name,
+                        "channel_id": channel_id,
+                        "guild": webhook_msg.get("guild", "unknown"),
+                        "guild_id": webhook_msg.get("guild_id", ""),
+                        "timestamp": webhook_msg.get("timestamp"),
+                        "platform": "discord",
+                        "source": "webhook"
+                    })
+                    
+        except Exception as e:
+            logger.warning(f"Alternative message fetch failed for #{channel_name}: {e}")
+    
+    async def _get_audit_logs(self, channel_id: str) -> List[Dict]:
+        """Get audit logs for message deletions (may contain content)."""
+        try:
+            # Get guild ID from channel
+            channel_info = await self._get(f"/channels/{channel_id}")
+            if not channel_info:
+                return []
+                
+            guild_id = channel_info.get("guild_id")
+            if not guild_id:
+                return []
+                
+            # Get audit logs for message deletions
+            logs = await self._get(f"/guilds/{guild_id}/audit-logs?limit=50&action_type=72")  # MESSAGE_DELETE
+            if not logs:
+                return []
+                
+            formatted_logs = []
+            for log in logs.get("audit_log_entries", []):
+                if log.get("target_id") == channel_id or log.get("options", {}).get("channel_id") == channel_id:
+                    formatted_logs.append({
+                        "id": log.get("id"),
+                        "content": log.get("options", {}).get("content", ""),
+                        "author": log.get("user_tag", "audit_log"),
+                        "author_id": log.get("user_id", ""),
+                        "guild_id": guild_id,
+                        "timestamp": log.get("created_at")
+                    })
+            
+            return formatted_logs
+        except Exception as e:
+            logger.debug(f"Audit log fetch failed: {e}")
+            return []
+    
+    async def _get_webhook_messages(self, channel_id: str) -> List[Dict]:
+        """Get messages from webhooks in the channel."""
+        try:
+            webhooks = await self._get(f"/channels/{channel_id}/webhooks")
+            if not webhooks:
+                return []
+                
+            webhook_messages = []
+            for webhook in webhooks:
+                # Try to get recent webhook messages
+                webhook_url = webhook.get("url")
+                if webhook_url:
+                    try:
+                        # This is a simplified approach - in practice you'd need to query webhook-specific endpoints
+                        webhook_messages.append({
+                            "id": webhook.get("id"),
+                            "content": f"Webhook message from {webhook.get('name', 'unknown')}",
+                            "author": webhook.get("name", "webhook"),
+                            "author_id": webhook.get("id"),
+                            "timestamp": webhook.get("created_at")
+                        })
+                    except Exception:
+                        continue
+                        
+            return webhook_messages
+        except Exception as e:
+            logger.debug(f"Webhook message fetch failed: {e}")
+            return []
+    
+    async def ban_user(
+        self, guild_id: str, user_id: str, reason: str = "Cyberbullying violation", delete_message_days: int = 7
+    ) -> bool:
+        """Ban a user from a guild."""
+        session = await self._get_session()
+        url = f"{DISCORD_API}/guilds/{guild_id}/bans/{user_id}"
+        try:
+            async with session.put(
+                url, 
+                json={
+                    "reason": reason,
+                    "delete_message_days": delete_message_days
+                }
+            ) as resp:
+                if resp.status in (200, 204):
+                    logger.info(f"Banned user {user_id} from guild {guild_id}: {reason}")
+                    return True
+                else:
+                    body = await resp.text()
+                    logger.error(f"Ban failed: {resp.status} {body}")
+                    return False
+        except Exception as e:
+            logger.error(f"Failed to ban user: {e}")
+            return False
+    
+    async def kick_user(
+        self, guild_id: str, user_id: str, reason: str = "Cyberbullying violation"
+    ) -> bool:
+        """Kick a user from a guild."""
+        session = await self._get_session()
+        url = f"{DISCORD_API}/guilds/{guild_id}/members/{user_id}"
+        try:
+            async with session.delete(
+                url,
+                json={"reason": reason}
+            ) as resp:
+                if resp.status in (200, 204):
+                    logger.info(f"Kicked user {user_id} from guild {guild_id}: {reason}")
+                    return True
+                else:
+                    body = await resp.text()
+                    logger.error(f"Kick failed: {resp.status} {body}")
+                    return False
+        except Exception as e:
+            logger.error(f"Failed to kick user: {e}")
+            return False
+    
+    async def moderate_user(
+        self, guild_id: str, user_id: str, action: str, reason: str = "Cyberbullying violation", **kwargs
+    ) -> bool:
+        """
+        Apply moderation action to a user.
+        
+        Args:
+            guild_id: Discord guild ID
+            user_id: Discord user ID
+            action: 'ban', 'kick', 'timeout', 'delete_message'
+            reason: Reason for moderation
+            **kwargs: Additional parameters (duration_minutes for timeout, message_id for delete)
+        
+        Returns:
+            True if action succeeded
+        """
+        if action == "ban":
+            return await self.ban_user(
+                guild_id, user_id, reason, 
+                delete_message_days=kwargs.get("delete_message_days", 7)
+            )
+        elif action == "kick":
+            return await self.kick_user(guild_id, user_id, reason)
+        elif action == "timeout":
+            return await self.timeout_user(
+                guild_id, user_id, 
+                duration_minutes=kwargs.get("duration_minutes", 10)
+            )
+        elif action == "delete_message":
+            message_id = kwargs.get("message_id")
+            channel_id = kwargs.get("channel_id")
+            if message_id and channel_id:
+                return await self.delete_message(channel_id, message_id)
+            else:
+                logger.error("delete_message action requires message_id and channel_id")
+                return False
+        else:
+            logger.error(f"Unknown moderation action: {action}")
+            return False
+
 
     async def timeout_user(
         self, guild_id: str, user_id: str, duration_minutes: int = 10

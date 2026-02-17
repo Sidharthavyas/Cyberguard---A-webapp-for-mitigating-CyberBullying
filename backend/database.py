@@ -191,6 +191,7 @@ async def get_moderation_events(
     limit: int = 50,
     skip: int = 0,
     action_filter: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> List[Dict]:
     """
     Get paginated moderation events from MongoDB.
@@ -200,6 +201,7 @@ async def get_moderation_events(
         limit: Max results
         skip: Offset for pagination
         action_filter: Filter by action ("flag", "delete", "ignore")
+        user_id: Filter by specific user ID
 
     Returns:
         List of moderation event dicts
@@ -213,6 +215,8 @@ async def get_moderation_events(
             query["platform"] = platform
         if action_filter:
             query["action"] = action_filter
+        if user_id:
+            query["author_id"] = user_id
 
         cursor = (
             _db.moderation_events.find(query, {"_id": 0})
@@ -226,7 +230,7 @@ async def get_moderation_events(
         return []
 
 
-async def count_moderation_events(platform: str = "all") -> int:
+async def count_moderation_events(platform: str = "all", user_id: Optional[str] = None) -> int:
     """Count total moderation events."""
     if _db is None:
         return 0
@@ -234,6 +238,8 @@ async def count_moderation_events(platform: str = "all") -> int:
         query: Dict[str, Any] = {}
         if platform != "all":
             query["platform"] = platform
+        if user_id:
+            query["author_id"] = user_id
         return await _db.moderation_events.count_documents(query)
     except Exception as e:
         logger.error(f"Error counting moderation events: {e}")
@@ -312,7 +318,7 @@ async def is_message_processed(platform_id: str, platform: str) -> bool:
 
 
 async def get_platform_messages(
-    platform: str = "all", limit: int = 50, skip: int = 0
+    platform: str = "all", limit: int = 50, skip: int = 0, user_id: Optional[str] = None
 ) -> List[Dict]:
     """Get paginated platform messages."""
     if _db is None:
@@ -322,6 +328,8 @@ async def get_platform_messages(
         query: Dict[str, Any] = {}
         if platform != "all":
             query["platform"] = platform
+        if user_id:
+            query["author_id"] = user_id
 
         cursor = (
             _db.platform_messages.find(query, {"_id": 0})
@@ -415,7 +423,7 @@ async def load_metrics_snapshot() -> Optional[Dict]:
         return None
 
 
-async def get_aggregate_stats() -> Dict:
+async def get_aggregate_stats(user_id: Optional[str] = None) -> Dict:
     """
     Get aggregate statistics directly from MongoDB collections.
     More accurate than in-memory counters.
@@ -424,14 +432,19 @@ async def get_aggregate_stats() -> Dict:
         return {}
 
     try:
-        total = await _db.moderation_events.count_documents({})
-        flagged = await _db.moderation_events.count_documents({"action": "flag"})
+        query = {}
+        if user_id:
+            query["author_id"] = user_id
+            
+        total = await _db.moderation_events.count_documents(query)
+        flagged = await _db.moderation_events.count_documents({**query, "action": "flag"})
         deleted = await _db.moderation_events.count_documents(
-            {"action": {"$in": ["delete", "delete_failed"]}, "deleted": True}
+            {**query, "action": {"$in": ["delete", "delete_failed"]}, "deleted": True}
         )
 
         # Per-platform breakdown
         pipeline = [
+            {"$match": query},
             {
                 "$group": {
                     "_id": "$platform",
