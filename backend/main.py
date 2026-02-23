@@ -279,7 +279,7 @@ async def get_connected_platforms():
         List of connected platform names
     """
     from platform_manager import get_platform_manager
-    from unified_poller import get_connected_platforms
+    from unified_poller import get_connected_platforms as get_stored_platforms
     import redis
     import json
     
@@ -287,7 +287,7 @@ async def get_connected_platforms():
     active = platform_manager.get_connected_platforms()
     
     # Also get stored platforms from Redis
-    stored = get_connected_platforms()
+    stored = get_stored_platforms()
     
     # Also check Redis sessions for logged-in platforms
     redis_url = os.getenv("REDIS_URL")

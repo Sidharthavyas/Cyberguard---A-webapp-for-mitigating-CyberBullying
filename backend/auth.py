@@ -13,7 +13,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import tweepy
 import redis
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import urllib.parse
 import httpx
 import aiohttp
@@ -388,7 +388,6 @@ async def discord_callback(
         admin_guilds = [g for g in user_guilds if (g.get("permissions", 0) & 0x8) == 0x8]  # ADMIN permission
         logger.info(f"User has admin access to {len(admin_guilds)} servers")
         
-        # Store in Redis
         if redis_client:
             platform_data = {
                 "access_token": access_token,
@@ -419,9 +418,8 @@ async def discord_callback(
             logger.info(f"Stored Discord tokens for {username} ({user_id}) and set active session")
             logger.info(f"User has admin access to {len(admin_guilds)} servers")
             
-            # Check if user has admin guilds and redirect to server selection
+            # Store guilds temporarily for server selection (if any)
             if len(admin_guilds) > 0:
-                # Store guilds temporarily for server selection
                 redis_client.setex(
                     f"temp_guilds:{user_id}",
                     600,  # 10 minutes
@@ -430,22 +428,6 @@ async def discord_callback(
                         "access_token": access_token,
                         "username": username
                     })
-                )
-                
-                return RedirectResponse(
-                    url=f"{FRONTEND_URL}/server-selection?user_id={user_id}&username={username}&guilds_count={len(admin_guilds)}"
-                )
-            else:
-                # No admin guilds, just login normally
-                return RedirectResponse(
-                    url=(
-                        f"{FRONTEND_URL}/callback"
-                        f"?platform=discord"
-                        f"&access_token={access_token}"
-                        f"&user_id={user_id}"
-                        f"&username={username}"
-                        f"&message=Login successful! No servers where you have admin permissions."
-                    )
                 )
             
             # Start Discord Poller immediately after login for ALL servers
@@ -469,17 +451,22 @@ async def discord_callback(
             except Exception as e:
                 logger.error(f"Failed to auto-start Discord poller: {e}")
         
-        return RedirectResponse(
-            url=(
-                f"{FRONTEND_URL}/callback"
-                f"?platform=discord"
-                f"&access_token={access_token}"
-                f"&user_id={user_id}"
-                f"&username={username}"
-                f"&guilds_count={len(admin_guilds)}"
-                f"&message=Login successful! Bot added to {len(admin_guilds)} servers."
+        # Redirect based on whether the user has admin guilds
+        if len(admin_guilds) > 0:
+            return RedirectResponse(
+                url=f"{FRONTEND_URL}/server-selection?user_id={user_id}&username={username}&guilds_count={len(admin_guilds)}"
             )
-        )
+        else:
+            return RedirectResponse(
+                url=(
+                    f"{FRONTEND_URL}/callback"
+                    f"?platform=discord"
+                    f"&access_token={access_token}"
+                    f"&user_id={user_id}"
+                    f"&username={username}"
+                    f"&message=Login successful! No servers where you have admin permissions."
+                )
+            )
     
     except Exception as e:
         logger.error(f"Discord callback error: {e}", exc_info=True)
