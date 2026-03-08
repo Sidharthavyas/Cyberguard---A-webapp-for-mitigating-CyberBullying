@@ -41,6 +41,7 @@ class DiscordPoller(PlatformPoller):
             self.bot_token, self.guild_ids
         )
         self.processed_messages: set = set()  # Track processed message IDs
+        self._no_guilds_warned: bool = False  # Avoid spamming "no guilds" log
 
         logger.info(f"Discord poller initialized - monitoring ALL servers (interval: {self.poll_interval}s)")
 
@@ -50,8 +51,14 @@ class DiscordPoller(PlatformPoller):
 
         while self.is_running:
             try:
-                await self._poll_once()
-                await asyncio.sleep(self.poll_interval)
+                messages = await self._poll_once()
+
+                # If no guilds were found, back off to avoid hammering
+                if messages is None:
+                    # messages=None signals "no guilds" condition
+                    await asyncio.sleep(self.poll_interval * 5)
+                else:
+                    await asyncio.sleep(self.poll_interval)
 
             except asyncio.CancelledError:
                 logger.info("Discord poller cancelled")
@@ -65,7 +72,11 @@ class DiscordPoller(PlatformPoller):
         logger.info("Discord poller stopped")
 
     async def _poll_once(self):
-        """Poll Discord once for new messages."""
+        """
+        Poll Discord once for new messages.
+        Returns None if bot has no guilds (signals backoff to poll loop).
+        Returns list of messages otherwise.
+        """
         try:
             # Broadcast status
             await manager.broadcast({
@@ -74,15 +85,24 @@ class DiscordPoller(PlatformPoller):
                 "status": "working",
             })
 
-            messages = await self.client.get_recent_messages(limit=50)  # More messages for better coverage
+            messages = await self.client.get_recent_messages(limit=50)
 
             if not messages:
+                # get_recent_messages already logs a clear "not installed" warning
+                # when the bot has no guilds. Avoid re-checking or spamming.
+                if not self._no_guilds_warned:
+                    self._no_guilds_warned = True
+                    logger.info(
+                        "No Discord messages found. If the bot has no guilds, "
+                        "polling will back off automatically."
+                    )
+
                 await manager.broadcast({
                     "type": "status",
                     "message": "No new Discord messages",
                     "status": "idle",
                 })
-                return
+                return []
 
             # Filter out already-processed messages
             new_messages = []
@@ -102,7 +122,7 @@ class DiscordPoller(PlatformPoller):
                     "message": "No new Discord messages",
                     "status": "idle",
                 })
-                return
+                return []
 
             logger.info(f"Processing {len(new_messages)} new Discord messages")
             await manager.broadcast({

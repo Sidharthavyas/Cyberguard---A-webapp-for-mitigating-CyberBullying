@@ -33,6 +33,12 @@ async def poll_mentions():
     logger.info(f"Starting poller (interval: {POLL_INTERVAL}s)")
     
     twitter = get_twitter_client()
+    if twitter is None:
+        logger.error(
+            "Twitter client unavailable — credentials may be missing or the "
+            "Developer App is not attached to a Project. Twitter polling disabled."
+        )
+        return
     
     # Redis setup for session retrieval
     import redis

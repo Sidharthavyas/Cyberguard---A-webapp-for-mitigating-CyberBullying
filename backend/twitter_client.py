@@ -31,12 +31,23 @@ class TwitterClient:
         logger.info(f"Bearer token loaded (length: {len(self.bearer_token)}, starts with: {self.bearer_token[:20]}...)")
         
         # Initialize API v2 client
-        self.client = tweepy.Client(
-            bearer_token=self.bearer_token,
-            consumer_key=self.client_id,
-            consumer_secret=self.client_secret,
-            wait_on_rate_limit=False  # Don't block on rate limits
-        )
+        try:
+            self.client = tweepy.Client(
+                bearer_token=self.bearer_token,
+                consumer_key=self.client_id,
+                consumer_secret=self.client_secret,
+                wait_on_rate_limit=False  # Don't block on rate limits
+            )
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
+            self.client = None
+        except Exception as e:
+            logger.error(f"Failed to initialize Twitter API client: {e}")
+            self.client = None
         
         # Redis for storing last poll timestamp
         redis_url = os.getenv("REDIS_URL")
@@ -57,20 +68,35 @@ class TwitterClient:
             access_token: User's OAuth access token
             access_token_secret: User's OAuth access token secret
         """
-        self.client = tweepy.Client(
-            bearer_token=self.bearer_token,
-            consumer_key=self.client_id,
-            consumer_secret=self.client_secret,
-            access_token=access_token,
-            access_token_secret=access_token_secret,
-            wait_on_rate_limit=False
-        )
+        try:
+            self.client = tweepy.Client(
+                bearer_token=self.bearer_token,
+                consumer_key=self.client_id,
+                consumer_secret=self.client_secret,
+                access_token=access_token,
+                access_token_secret=access_token_secret,
+                wait_on_rate_limit=False
+            )
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
+            self.client = None
+            return
         
         try:
             me = self.client.get_me()
             if me.data:
                 self.user_id = me.data.id
                 logger.info(f"Authenticated as user ID: {self.user_id}")
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
         except Exception as e:
             logger.error(f"Failed to get user info: {e}")
     
@@ -87,10 +113,19 @@ class TwitterClient:
         # permissions.  Create a clean client with ONLY the bearer token.
         # Do NOT pass consumer_key/secret here — it confuses tweepy's auth
         # selection and causes 403 "Authenticating with Unknown".
-        self.client = tweepy.Client(
-            bearer_token=oauth2_access_token,
-            wait_on_rate_limit=False
-        )
+        try:
+            self.client = tweepy.Client(
+                bearer_token=oauth2_access_token,
+                wait_on_rate_limit=False
+            )
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
+            self.client = None
+            return False
         
         try:
             # IMPORTANT: user_auth=False tells tweepy to use the bearer token
@@ -104,6 +139,14 @@ class TwitterClient:
             else:
                 logger.error("OAuth2 user auth: get_me returned no data")
                 return False
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
+            self.client = None
+            return False
         except Exception as e:
             logger.error(f"OAuth2 user auth failed: {e}")
             return False
@@ -120,6 +163,10 @@ class TwitterClient:
         Returns:
             List of mention dictionaries
         """
+        if self.client is None:
+            logger.warning("Twitter client not available — skipping mention fetch")
+            return []
+
         target_user_id = user_id or self.user_id
         
         if not target_user_id:
@@ -164,6 +211,13 @@ class TwitterClient:
             logger.info(f"Retrieved {len(mentions)} new mentions for user {target_user_id}")
             return mentions
             
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
+            return []
         except tweepy.errors.TweepyException as e:
             logger.error(f"Error fetching mentions for {target_user_id}: {e}")
             return []
@@ -181,6 +235,10 @@ class TwitterClient:
             "hidden" if successfully hidden,
             False if both failed
         """
+        if self.client is None:
+            logger.warning("Twitter client not available — cannot delete tweet")
+            return False
+
         try:
             response = self.client.delete_tweet(tweet_id, user_auth=False)
             
@@ -211,6 +269,10 @@ class TwitterClient:
         Returns:
             "hidden" if successfully hidden, False otherwise
         """
+        if self.client is None:
+            logger.warning("Twitter client not available — cannot hide reply")
+            return False
+
         try:
             response = self.client.hide_reply(tweet_id, user_auth=False)
             
@@ -239,6 +301,10 @@ class TwitterClient:
         Returns:
             List of tweet dictionaries
         """
+        if self.client is None:
+            logger.warning("Twitter client not available — skipping search")
+            return []
+
         try:
             response = self.client.search_recent_tweets(
                 query=query,
@@ -262,6 +328,13 @@ class TwitterClient:
             
             return tweets
             
+        except tweepy.errors.Forbidden as e:
+            logger.error(
+                "Twitter Developer App must be attached to a Project in the "
+                "Twitter Developer Portal. "
+                f"Details: {e}"
+            )
+            return []
         except tweepy.errors.TweepyException as e:
             logger.error(f"Error searching tweets: {e}")
             return []
@@ -271,9 +344,19 @@ class TwitterClient:
 twitter_client = None
 
 
-def get_twitter_client() -> TwitterClient:
-    """Get or create the global Twitter client instance."""
+def get_twitter_client() -> Optional[TwitterClient]:
+    """
+    Get or create the global Twitter client instance.
+    Returns None if credentials are missing or invalid — callers should handle this.
+    """
     global twitter_client
     if twitter_client is None:
-        twitter_client = TwitterClient()
+        try:
+            twitter_client = TwitterClient()
+        except ValueError as e:
+            logger.error(f"Cannot create Twitter client: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Twitter client init failed: {e}")
+            return None
     return twitter_client
