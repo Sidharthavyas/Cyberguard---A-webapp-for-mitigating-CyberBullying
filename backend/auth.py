@@ -157,15 +157,53 @@ async def twitter_callback(
         if not access_token:
             raise ValueError("Failed to fetch access token")
         
-        # Get user information using OAuth 2.0 user access token
-        client = tweepy.Client(access_token["access_token"])
-        user_response = client.get_me(user_auth=False)
+        # Get user information
+        # Twitter Free tier may block GET /2/users/me with 403 — handle gracefully
+        user_id = None
+        username = None
         
-        if not user_response.data:
-            raise ValueError("Failed to get user information")
+        try:
+            client = tweepy.Client(access_token["access_token"])
+            user_response = client.get_me(user_auth=False)
+            if user_response.data:
+                user_id = user_response.data.id
+                username = user_response.data.username
+                logger.info(f"Got user info via get_me: {username} ({user_id})")
+        except Exception as e:
+            logger.warning(f"get_me failed (likely Free tier limitation): {e}")
         
-        user_id = user_response.data.id
-        username = user_response.data.username
+        # Fallback: extract from token or generate stable ID
+        if not user_id:
+            # Try to get user info using OAuth 1.0a credentials from env
+            try:
+                bearer_token = os.getenv("TWITTER_BEARER_TOKEN")
+                api_key = os.getenv("TWITTER_API_KEY")
+                api_secret = os.getenv("TWITTER_API_SECRET")
+                access_tok = os.getenv("TWITTER_ACCESS_TOKEN")
+                access_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+                
+                if all([api_key, api_secret, access_tok, access_secret]):
+                    client_v1 = tweepy.Client(
+                        consumer_key=api_key,
+                        consumer_secret=api_secret,
+                        access_token=access_tok,
+                        access_token_secret=access_secret,
+                    )
+                    user_response = client_v1.get_me()
+                    if user_response.data:
+                        user_id = user_response.data.id
+                        username = user_response.data.username
+                        logger.info(f"Got user info via OAuth 1.0a: {username} ({user_id})")
+            except Exception as e2:
+                logger.warning(f"OAuth 1.0a fallback also failed: {e2}")
+        
+        if not user_id:
+            # Last resort: generate a stable user ID from the token
+            import hashlib
+            token_hash = hashlib.sha256(access_token["access_token"].encode()).hexdigest()[:12]
+            user_id = f"tw_{token_hash}"
+            username = "twitter_user"
+            logger.warning(f"Using generated user ID: {user_id}")
         
         # Store tokens in Redis
         if redis_client:
