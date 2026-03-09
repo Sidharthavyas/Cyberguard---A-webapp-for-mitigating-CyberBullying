@@ -58,6 +58,8 @@ class TwitterClient:
             self.redis_client = None
         
         self.user_id = None
+        # Track last auth failure to allow callers to self-heal (e.g., clear stale tokens)
+        self.last_auth_error_code: Optional[str] = None  # e.g. "unauthorized", "forbidden", "unknown"
         logger.info("Twitter client initialized")
     
     def set_user_credentials(self, access_token: str, access_token_secret: str):
@@ -134,12 +136,20 @@ class TwitterClient:
             me = self.client.get_me(user_auth=False)
             if me and me.data:
                 self.user_id = me.data.id
+                self.last_auth_error_code = None
                 logger.info(f"✓ OAuth2 user auth successful — user: {me.data.username} (ID: {self.user_id})")
                 return True
             else:
                 logger.error("OAuth2 user auth: get_me returned no data")
+                self.last_auth_error_code = "unknown"
                 return False
+        except tweepy.errors.Unauthorized as e:
+            # Typically means the user token expired/revoked or is malformed.
+            self.last_auth_error_code = "unauthorized"
+            logger.error(f"OAuth2 user auth failed: 401 Unauthorized ({e})")
+            return False
         except tweepy.errors.Forbidden as e:
+            self.last_auth_error_code = "forbidden"
             logger.error(
                 "Twitter Developer App must be attached to a Project in the "
                 "Twitter Developer Portal. "
@@ -148,6 +158,7 @@ class TwitterClient:
             self.client = None
             return False
         except Exception as e:
+            self.last_auth_error_code = "unknown"
             logger.error(f"OAuth2 user auth failed: {e}")
             return False
     

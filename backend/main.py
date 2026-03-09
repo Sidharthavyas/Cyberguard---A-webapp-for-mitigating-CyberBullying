@@ -12,13 +12,18 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Install DNS-over-HTTPS patch for HF Spaces
-# HF Spaces blocks DNS for discord.com — this resolves it via Cloudflare DoH
-try:
-    from dns_resolver import install_doh_patch
-    install_doh_patch()
-except Exception as e:
-    logging.warning(f"Failed to install DoH DNS patch: {e}")
+# Install DNS-over-HTTPS patch (optional).
+# NOTE: Discord API calls from HF Spaces should be routed via the Vercel proxy
+# (`DISCORD_PROXY_URL`) and Discord OAuth should run on Vercel functions.
+# The DoH patch can still be useful in some restricted environments, but it can
+# also interfere with TLS/SNI on certain hosts. Keep it opt-in.
+if os.getenv("ENABLE_DOH_DNS_PATCH", "0") == "1":
+    try:
+        from dns_resolver import install_doh_patch
+
+        install_doh_patch()
+    except Exception as e:
+        logging.warning(f"Failed to install DoH DNS patch: {e}")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware

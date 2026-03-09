@@ -50,6 +50,23 @@ else:
 # Store pending OAuth state -> code_verifier (in-memory; Redis not needed for CSRF protection)
 pending_oauth: Dict[str, str] = {}
 
+def _should_use_vercel_discord_oauth() -> bool:
+    """
+    HF Spaces commonly blocks outbound connections to discord.com.
+    This project already includes Vercel serverless functions under
+    `frontend/api/discord/*` that handle Discord OAuth + forward the token
+    to this backend (`/auth/discord/store-token`).
+    """
+    if os.getenv("DISCORD_OAUTH_VIA_VERCEL", "").lower() in ("1", "true", "yes"):
+        return True
+    # Heuristic: if backend is hosted on HF and frontend is Vercel, use Vercel OAuth.
+    if "hf.space" in (BACKEND_URL or "") and "vercel.app" in (FRONTEND_URL or ""):
+        return True
+    # If the Discord API proxy is configured (typically Vercel), we likely want Vercel OAuth too.
+    if os.getenv("DISCORD_PROXY_URL"):
+        return True
+    return False
+
 
 def _store_state(state: str, code_verifier: str):
     logger.info(f"Storing OAuth state {state}")
@@ -256,6 +273,11 @@ async def discord_login():
         raise HTTPException(status_code=500, detail="Discord OAuth not configured")
     
     try:
+        # Prefer Vercel OAuth flow when running in restricted egress environments.
+        # This avoids backend→discord.com calls that fail on HF Spaces.
+        if _should_use_vercel_discord_oauth():
+            return RedirectResponse(url=f"{FRONTEND_URL.rstrip('/')}/api/discord/login")
+
         state = secrets.token_urlsafe(32)
         _store_state(state, "discord_oauth")  # Store state for verification
         
@@ -293,6 +315,11 @@ async def discord_callback(
     """
     Handle OAuth2 callback from Discord.
     """
+    # If the app is configured to use Vercel OAuth, this backend callback should
+    # not be used. Redirect user to the Vercel callback handler.
+    if _should_use_vercel_discord_oauth():
+        return RedirectResponse(url=f"{FRONTEND_URL.rstrip('/')}/api/discord/callback?{urllib.parse.urlencode({'code': code or '', 'state': state or '', 'error': error or ''})}")
+
     if error:
         logger.error(f"Discord OAuth error: {error}")
         return RedirectResponse(url=f"{FRONTEND_URL}?error={error}")
@@ -710,25 +737,12 @@ async def discord_bot_callback(
     
     if code and guild_id:
         try:
-            # Exchange code for bot token
-            import requests as sync_requests
-            
-            token_data = {
-                "client_id": DISCORD_CLIENT_ID,
-                "client_secret": DISCORD_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": f"{BACKEND_URL}/auth/discord/bot-callback"
-            }
-            
-            resp = sync_requests.post(
-                "https://discord.com/api/oauth2/token",
-                data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            resp.raise_for_status()
-            
-            logger.info(f"✅ Bot successfully added to guild {guild_id}")
+            # When adding a bot to a guild, Discord will redirect back with a `code`.
+            # The bot token itself is NOT derived from this code (it's configured via
+            # DISCORD_BOT_TOKEN). In restricted egress environments (HF Spaces),
+            # calling discord.com from the backend can fail. Treat the callback as
+            # a success signal and start monitoring using the configured bot token.
+            logger.info(f"✅ Bot authorization callback received for guild {guild_id}")
             
             # Start monitoring if not already running
             bot_token = os.getenv("DISCORD_BOT_TOKEN")

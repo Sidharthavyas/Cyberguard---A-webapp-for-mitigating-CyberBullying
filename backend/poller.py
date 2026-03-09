@@ -67,6 +67,18 @@ async def poll_mentions():
                     user_authenticated = True
                     current_token = oauth2_token
                     logger.info("✓ Poller using OAuth2 user token for API calls")
+                else:
+                    # If token is invalid/expired, clear it so we don't get stuck
+                    # and the user can re-login to refresh it.
+                    if getattr(twitter, "last_auth_error_code", None) == "unauthorized":
+                        logger.error(
+                            "Stored Twitter OAuth2 token is unauthorized (likely expired/revoked). "
+                            "Clearing Redis session — please login again."
+                        )
+                        try:
+                            redis_client.delete("session:twitter")
+                        except Exception:
+                            pass
     
     # Fallback: Load OAuth 1.0a credentials from .env for auto-delete
     if not user_authenticated:
@@ -113,6 +125,18 @@ async def poll_mentions():
                             current_token = oauth2_token
                             user_authenticated = True
                             logger.info("✓ Poller refreshed OAuth2 user token")
+                        else:
+                            if getattr(twitter, "last_auth_error_code", None) == "unauthorized":
+                                logger.error(
+                                    "New Twitter OAuth2 token is unauthorized. "
+                                    "Clearing Redis session — please login again."
+                                )
+                                try:
+                                    redis_client.delete("session:twitter")
+                                except Exception:
+                                    pass
+                                current_token = None
+                                user_authenticated = False
 
             await poll_once(twitter, redis_client, processed_ids)
             

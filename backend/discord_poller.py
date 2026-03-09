@@ -53,9 +53,9 @@ class DiscordPoller(PlatformPoller):
             try:
                 messages = await self._poll_once()
 
-                # If no guilds were found, back off to avoid hammering
+                # If the API is unreachable, back off harder to avoid hammering.
                 if messages is None:
-                    # messages=None signals "no guilds" condition
+                    # messages=None signals "API unreachable" condition
                     await asyncio.sleep(self.poll_interval * 5)
                 else:
                     await asyncio.sleep(self.poll_interval)
@@ -86,6 +86,15 @@ class DiscordPoller(PlatformPoller):
             })
 
             messages = await self.client.get_recent_messages(limit=50)
+
+            # None means Discord API couldn't be reached (proxy/network issue).
+            if messages is None:
+                await manager.broadcast({
+                    "type": "status",
+                    "message": "Discord API unreachable (check DISCORD_PROXY_URL)",
+                    "status": "error",
+                })
+                return None
 
             if not messages:
                 # get_recent_messages already logs a clear "not installed" warning

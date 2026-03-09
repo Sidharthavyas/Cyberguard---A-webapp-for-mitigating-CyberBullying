@@ -8,7 +8,7 @@ import asyncio
 import logging
 import os
 import aiohttp
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,15 @@ DISCORD_PROXY_URL = os.getenv("DISCORD_PROXY_URL")
 DISCORD_PROXY_SECRET = os.getenv("DISCORD_PROXY_SECRET", "")
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1  # seconds — delays: 1s, 2s, 4s
+
+# If a Vercel frontend URL is available, default the proxy URL automatically.
+# This prevents repeated timeouts when running the backend in restricted egress
+# environments (HF Spaces) without having to manually set DISCORD_PROXY_URL.
+if not DISCORD_PROXY_URL:
+    frontend_url = os.getenv("FRONTEND_URL") or os.getenv("VITE_FRONTEND_URL")
+    if frontend_url and ("vercel.app" in frontend_url or "/api" not in frontend_url):
+        DISCORD_PROXY_URL = frontend_url.rstrip("/") + "/api/discord/proxy"
+        logger.info(f"DISCORD_PROXY_URL not set — defaulting to {DISCORD_PROXY_URL}")
 
 
 class DiscordModerationClient:
@@ -280,10 +289,18 @@ class DiscordModerationClient:
 
     # ---- Public API ----
 
-    async def get_bot_guilds(self) -> List[Dict]:
-        """Get list of guilds the bot is in."""
+    async def get_bot_guilds(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get list of guilds the bot is in.
+
+        Returns:
+            - list: request succeeded (possibly empty if bot is in zero guilds)
+            - None: request failed (network/proxy error, invalid token, etc.)
+        """
         data = await self._get("/users/@me/guilds")
-        return data if data else []
+        if data is None:
+            return None
+        return data
 
     async def get_guild_text_channels(self, guild_id: str) -> List[Dict]:
         """Get text channels in a guild."""
@@ -300,7 +317,7 @@ class DiscordModerationClient:
         data = await self._get(f"/channels/{channel_id}/messages?limit={limit}")
         return data if data else []
 
-    async def get_recent_messages(self, limit: int = 25) -> List[Dict]:
+    async def get_recent_messages(self, limit: int = 25) -> Optional[List[Dict]]:
         """
         Fetch recent messages from all monitored guilds/channels.
 
@@ -314,6 +331,14 @@ class DiscordModerationClient:
 
         try:
             guilds = await self.get_bot_guilds()
+            if guilds is None:
+                logger.error(
+                    "Discord API is unreachable from the backend. "
+                    "If running on HF Spaces, set DISCORD_PROXY_URL to your Vercel "
+                    "deployment (e.g. https://<your-app>.vercel.app/api/discord/proxy)."
+                )
+                return None
+
             if not guilds:
                 logger.warning(
                     "Discord bot is not installed in any server. "
