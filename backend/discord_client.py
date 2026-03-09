@@ -6,6 +6,7 @@ Works inside FastAPI's async event loop without blocking.
 
 import asyncio
 import logging
+import os
 import aiohttp
 from typing import Optional, List, Dict
 
@@ -13,7 +14,10 @@ logger = logging.getLogger(__name__)
 
 DISCORD_API = "https://discord.com/api/v10"
 
-# Retry configuration
+# Vercel proxy for HF Spaces (discord.com is blocked at network level)
+# Set DISCORD_PROXY_URL to your Vercel deployment, e.g. https://cyberguard-a-webapp-for-mitigating.vercel.app/api/discord/proxy
+DISCORD_PROXY_URL = os.getenv("DISCORD_PROXY_URL")
+DISCORD_PROXY_SECRET = os.getenv("DISCORD_PROXY_SECRET", "")
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1  # seconds — delays: 1s, 2s, 4s
 
@@ -53,21 +57,55 @@ class DiscordModerationClient:
             await self._session.close()
 
     # ---- REST helpers with retry + rate-limit handling ----
+    
+    def _prepare_request(self, method: str, path: str, json_data: Optional[Dict] = None) -> tuple[str, str, Dict, Optional[Dict]]:
+        """
+        Prepares the request URL, method, headers, and body.
+        If DISCORD_PROXY_URL is set, formats the request to go through the Vercel proxy.
+        Returns: (actual_url, actual_method, headers, body)
+        """
+        headers = {}
+        
+        if DISCORD_PROXY_URL:
+            # Route through Vercel proxy
+            actual_url = DISCORD_PROXY_URL
+            actual_method = "POST"
+            if DISCORD_PROXY_SECRET:
+                headers["x-proxy-secret"] = DISCORD_PROXY_SECRET
+                
+            body = {
+                "method": method.upper(),
+                "path": path
+            }
+            if json_data:
+                body["body"] = json_data
+                
+            return actual_url, actual_method, headers, body
+        else:
+            # Direct connection
+            actual_url = f"{DISCORD_API}{path}"
+            return actual_url, method.upper(), headers, json_data
 
     async def _get(self, path: str) -> Optional[any]:
         """
         GET request to Discord API with retry and rate-limit handling.
         Retries up to MAX_RETRIES times with exponential backoff.
         """
+        url, method_name, extra_headers, body = self._prepare_request("GET", path)
+        
         for attempt in range(MAX_RETRIES):
             session = await self._get_session()
-            url = f"{DISCORD_API}{path}"
             try:
-                async with session.get(url) as resp:
+                # We use session.request because method might be POST if using proxy
+                async with session.request(method_name, url, headers=extra_headers, json=body) as resp:
                     # Rate-limited — wait and retry
                     if resp.status == 429:
                         data = await resp.json()
                         retry_after = data.get("retry_after", 1)
+                        # Vercel proxy forwards Discord's retry-after header too
+                        if resp.headers.get("retry-after"):
+                            retry_after = float(resp.headers.get("retry-after"))
+                        
                         logger.warning(
                             f"Discord rate limited on GET {path} — "
                             f"retrying after {retry_after}s"
@@ -78,9 +116,9 @@ class DiscordModerationClient:
                     if resp.status == 200:
                         return await resp.json()
                     else:
-                        body = await resp.text()
+                        resp_body = await resp.text()
                         logger.error(
-                            f"Discord API GET {path} → {resp.status}: {body}"
+                            f"Discord API GET {path} → {resp.status}: {resp_body}"
                         )
                         return None
 
@@ -115,14 +153,18 @@ class DiscordModerationClient:
 
     async def _delete(self, path: str) -> bool:
         """DELETE request to Discord API with retry and rate-limit handling."""
+        url, method_name, extra_headers, body = self._prepare_request("DELETE", path)
+        
         for attempt in range(MAX_RETRIES):
             session = await self._get_session()
-            url = f"{DISCORD_API}{path}"
             try:
-                async with session.delete(url) as resp:
+                async with session.request(method_name, url, headers=extra_headers, json=body) as resp:
                     if resp.status == 429:
                         data = await resp.json()
                         retry_after = data.get("retry_after", 1)
+                        if resp.headers.get("retry-after"):
+                            retry_after = float(resp.headers.get("retry-after"))
+                            
                         logger.warning(
                             f"Discord rate limited on DELETE {path} — "
                             f"retrying after {retry_after}s"
@@ -130,12 +172,12 @@ class DiscordModerationClient:
                         await asyncio.sleep(retry_after)
                         continue
 
-                    if resp.status == 204:
+                    if resp.status in (204, 200):
                         return True
                     else:
-                        body = await resp.text()
+                        resp_body = await resp.text()
                         logger.error(
-                            f"Discord API DELETE {path} → {resp.status}: {body}"
+                            f"Discord API DELETE {path} → {resp.status}: {resp_body}"
                         )
                         return False
 
@@ -156,16 +198,20 @@ class DiscordModerationClient:
 
         return False
 
-    async def _put(self, path: str, json: Optional[Dict] = None) -> bool:
+    async def _put(self, path: str, json_data: Optional[Dict] = None) -> bool:
         """PUT request to Discord API with retry and rate-limit handling."""
+        url, method_name, extra_headers, body = self._prepare_request("PUT", path, json_data)
+        
         for attempt in range(MAX_RETRIES):
             session = await self._get_session()
-            url = f"{DISCORD_API}{path}"
             try:
-                async with session.put(url, json=json) as resp:
+                async with session.request(method_name, url, headers=extra_headers, json=body) as resp:
                     if resp.status == 429:
                         data = await resp.json()
                         retry_after = data.get("retry_after", 1)
+                        if resp.headers.get("retry-after"):
+                            retry_after = float(resp.headers.get("retry-after"))
+                            
                         logger.warning(
                             f"Discord rate limited on PUT {path} — "
                             f"retrying after {retry_after}s"
@@ -176,9 +222,9 @@ class DiscordModerationClient:
                     if resp.status in (200, 204):
                         return True
                     else:
-                        body = await resp.text()
+                        resp_body = await resp.text()
                         logger.error(
-                            f"Discord API PUT {path} → {resp.status}: {body}"
+                            f"Discord API PUT {path} → {resp.status}: {resp_body}"
                         )
                         return False
 

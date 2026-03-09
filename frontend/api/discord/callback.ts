@@ -2,12 +2,13 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 /**
  * Discord OAuth Callback - Exchanges authorization code for tokens
- * This runs on Vercel Edge to bypass HuggingFace Spaces DNS restrictions
+ * This runs on Vercel to bypass HuggingFace Spaces network restrictions
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
     const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
     const FRONTEND_URL = process.env.VITE_FRONTEND_URL || 'https://cyberguard-a-webapp-for-mitigating.vercel.app';
+    const BACKEND_URL = process.env.VITE_API_URL || 'https://sidhartha2004-cyberguard.hf.space';
 
     if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
         return res.redirect(`${FRONTEND_URL}?error=discord_not_configured`);
@@ -81,6 +82,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const userInfo = await userResponse.json();
         const userId = userInfo.id;
         const username = userInfo.username;
+
+        // Forward tokens to HF backend so it can store them in Redis
+        // (needed for the Discord poller and moderation features)
+        try {
+            await fetch(`${BACKEND_URL}/auth/discord/store-token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    access_token: accessToken,
+                    refresh_token: tokenData.refresh_token,
+                    user_id: userId,
+                    username: username,
+                }),
+            });
+            console.log(`Forwarded Discord tokens to backend for user ${username}`);
+        } catch (backendErr) {
+            // Non-fatal: login still works, but poller won't have user tokens
+            console.warn('Failed to forward tokens to backend:', backendErr);
+        }
 
         // Clear the state cookie
         res.setHeader('Set-Cookie', 'discord_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');

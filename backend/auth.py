@@ -460,7 +460,56 @@ async def discord_callback(
         return RedirectResponse(url=f"{FRONTEND_URL}?error=discord_auth_failed&details={str(e)}")
 
 
+# ============= DISCORD TOKEN STORAGE (called by Vercel proxy) =============
+
+from pydantic import BaseModel
+
+class DiscordTokenRequest(BaseModel):
+    access_token: str
+    refresh_token: Optional[str] = None
+    user_id: str
+    username: str
+
+@router.post("/discord/store-token")
+async def store_discord_token(payload: DiscordTokenRequest):
+    """
+    Store Discord tokens in Redis.
+    Called by the Vercel serverless function after successful Discord OAuth,
+    since HF Spaces can't reach Discord directly.
+    """
+    try:
+        if not redis_client:
+            logger.warning("No Redis client - cannot store Discord token")
+            return {"status": "warning", "message": "No Redis configured"}
+        
+        token_data = {
+            "access_token": payload.access_token,
+            "refresh_token": payload.refresh_token,
+            "user_id": payload.user_id,
+            "username": payload.username,
+            "platform": "discord"
+        }
+        
+        # Store in Redis (same keys as the original callback would use)
+        redis_client.set(f"user:{payload.user_id}", json.dumps(token_data))
+        redis_client.set("session:discord", json.dumps(token_data))
+        redis_client.set("session:current_user", json.dumps(token_data))
+        redis_client.setex(
+            f"discord_token:{payload.user_id}",
+            90 * 24 * 60 * 60,  # 90 days
+            json.dumps(token_data),
+        )
+        
+        logger.info(f"Stored Discord tokens for user {payload.username} ({payload.user_id}) via Vercel proxy")
+        return {"status": "ok", "user_id": payload.user_id}
+        
+    except Exception as e:
+        logger.error(f"Failed to store Discord token: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # ============= COMMON ROUTES =============
+
 
 async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     """
