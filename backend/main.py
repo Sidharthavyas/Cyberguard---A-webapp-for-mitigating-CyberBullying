@@ -12,6 +12,14 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Install DNS-over-HTTPS patch for HF Spaces
+# HF Spaces blocks DNS for discord.com — this resolves it via Cloudflare DoH
+try:
+    from dns_resolver import install_doh_patch
+    install_doh_patch()
+except Exception as e:
+    logging.warning(f"Failed to install DoH DNS patch: {e}")
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

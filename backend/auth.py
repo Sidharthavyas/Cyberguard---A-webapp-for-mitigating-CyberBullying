@@ -270,12 +270,11 @@ async def discord_callback(
             logger.error("State mismatch or expired")
             return RedirectResponse(url=f"{FRONTEND_URL}?error=state_mismatch")
         
-        # Use synchronous requests via thread pool — async clients (aiohttp, httpx)
-        # fail DNS resolution for discord.com on HF Spaces, but sync requests works.
+        # DNS for discord.com is handled by the global DoH patch (dns_resolver.py)
         import requests as sync_requests
         import asyncio
         
-        logger.info("Exchanging code for Discord token using sync requests...")
+        logger.info("Exchanging code for Discord token...")
         
         token_data_payload = {
             "client_id": DISCORD_CLIENT_ID,
@@ -288,14 +287,13 @@ async def discord_callback(
         def _do_discord_exchange():
             """
             Synchronous Discord token exchange + user info fetch.
-            Uses standard requests library — lets the OS handle DNS normally.
+            DNS for discord.com is resolved via the global DoH patch.
             """
             # Exchange code for access token
             token_resp = sync_requests.post(
                 "https://discord.com/api/oauth2/token",
                 data=token_data_payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                verify=True,
                 timeout=30,
             )
             token_resp.raise_for_status()
@@ -305,7 +303,6 @@ async def discord_callback(
             user_resp = sync_requests.get(
                 "https://discord.com/api/users/@me",
                 headers={"Authorization": f"Bearer {t_data['access_token']}"},
-                verify=True,
                 timeout=30,
             )
             user_resp.raise_for_status()
@@ -325,11 +322,9 @@ async def discord_callback(
         def _fetch_user_guilds():
             """Fetch guilds where user can add the bot."""
             try:
-                # Use the access token to get user's guilds
                 guilds_resp = sync_requests.get(
                     "https://discord.com/api/users/@me/guilds",
                     headers={"Authorization": f"Bearer {access_token}"},
-                    verify=True,
                     timeout=30,
                 )
                 guilds_resp.raise_for_status()
@@ -642,7 +637,7 @@ async def discord_bot_callback(
             resp = sync_requests.post(
                 "https://discord.com/api/oauth2/token",
                 data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             resp.raise_for_status()
             
