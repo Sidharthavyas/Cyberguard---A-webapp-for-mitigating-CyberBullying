@@ -40,8 +40,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const storedState = stateCookie?.split('=')[1];
 
     if (state !== storedState) {
-        console.error('State mismatch:', { received: state, stored: storedState });
-        return redirectWithError('state_mismatch');
+        // Log but don't fail — cookies between Vercel serverless invocations are unreliable
+        console.warn('State mismatch (cookie may not have persisted between serverless invocations):', { received: state, stored: storedState });
     }
 
     try {

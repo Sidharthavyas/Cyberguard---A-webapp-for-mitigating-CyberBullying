@@ -84,7 +84,10 @@ class DiscordModerationClient:
                 
             body = {
                 "method": method.upper(),
-                "path": path
+                "path": path,
+                "headers": {
+                    "Authorization": f"Bot {self.bot_token}"
+                }
             }
             if json_data:
                 body["body"] = json_data
@@ -300,12 +303,18 @@ class DiscordModerationClient:
         data = await self._get("/users/@me/guilds")
         if data is None:
             return None
+        if not isinstance(data, list):
+            logger.error(f"Expected list from /users/@me/guilds, got {type(data).__name__}: {data}")
+            return None
         return data
 
     async def get_guild_text_channels(self, guild_id: str) -> List[Dict]:
         """Get text channels in a guild."""
         data = await self._get(f"/guilds/{guild_id}/channels")
         if not data:
+            return []
+        if not isinstance(data, list):
+            logger.error(f"Expected list from /guilds/{guild_id}/channels, got {type(data).__name__}: {data}")
             return []
         # Filter to text channels only (type 0)
         return [ch for ch in data if ch.get("type") == 0]
@@ -315,6 +324,9 @@ class DiscordModerationClient:
     ) -> List[Dict]:
         """Fetch recent messages from a channel."""
         data = await self._get(f"/channels/{channel_id}/messages?limit={limit}")
+        if data and not isinstance(data, list):
+            logger.error(f"Expected list from /channels/{channel_id}/messages, got {type(data).__name__}: {data}")
+            return []
         return data if data else []
 
     async def get_recent_messages(self, limit: int = 25) -> Optional[List[Dict]]:
