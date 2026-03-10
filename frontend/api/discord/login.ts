@@ -6,6 +6,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+    const FRONTEND_URL = (process.env.VITE_FRONTEND_URL || 'https://cyberguard-a-webapp-for-mitigating.vercel.app').replace(/\/$/, '');
 
     if (!DISCORD_CLIENT_ID) {
         return res.status(500).json({ error: 'Discord OAuth not configured' });
@@ -15,10 +16,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const state = Math.random().toString(36).substring(2, 15) +
         Math.random().toString(36).substring(2, 15);
 
-    // Get the callback URL (this Vercel deployment)
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
-    const callbackUrl = `${protocol}://${host}/api/discord/callback`;
+    // Use a fixed callback URL to guarantee it matches exactly in callback.ts
+    // (header-based construction can differ between Vercel serverless invocations)
+    const callbackUrl = `${FRONTEND_URL}/api/discord/callback`;
 
     // Store state in a cookie for verification
     res.setHeader('Set-Cookie', `discord_oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
@@ -33,6 +33,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const authUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+
+    console.log('Discord login - redirect_uri:', callbackUrl);
 
     // Redirect to Discord
     res.redirect(authUrl);

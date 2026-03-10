@@ -7,7 +7,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
     const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
-    const FRONTEND_URL = process.env.VITE_FRONTEND_URL || 'https://cyberguard-a-webapp-for-mitigating.vercel.app';
+    const FRONTEND_URL = (process.env.VITE_FRONTEND_URL || 'https://cyberguard-a-webapp-for-mitigating.vercel.app').replace(/\/$/, '');
     const BACKEND_URL = process.env.VITE_API_URL || 'https://sidhartha2004-cyberguard.hf.space';
 
     const redirectWithError = (code: string) => {
@@ -45,10 +45,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        // Get the callback URL (this Vercel deployment)
-        const protocol = req.headers['x-forwarded-proto'] || 'https';
-        const host = req.headers['x-forwarded-host'] || req.headers.host;
-        const callbackUrl = `${protocol}://${host}/api/discord/callback`;
+        // Use the same fixed callback URL as login.ts to guarantee exact match
+        const callbackUrl = `${FRONTEND_URL}/api/discord/callback`;
+
+        console.log('Discord callback - redirect_uri:', callbackUrl);
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
@@ -67,7 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!tokenResponse.ok) {
             const errorData = await tokenResponse.text();
-            console.error('Token exchange failed:', errorData);
+            console.error('Token exchange failed:', tokenResponse.status, errorData);
             return redirectWithError('token_exchange_failed');
         }
 
