@@ -68,7 +68,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!tokenResponse.ok) {
             const errorData = await tokenResponse.text();
             console.error('Token exchange failed:', tokenResponse.status, errorData);
-            return redirectWithError('token_exchange_failed');
+            // Surface the actual Discord error in the redirect so we can diagnose
+            const discordError = encodeURIComponent(errorData.substring(0, 200));
+            return redirectWithError(`token_exchange_failed_${tokenResponse.status}_${discordError}`);
         }
 
         const tokenData = await tokenResponse.json();
