@@ -82,9 +82,12 @@ class DiscordModerationClient:
             if DISCORD_PROXY_SECRET:
                 headers["x-proxy-secret"] = DISCORD_PROXY_SECRET
                 
+            # Prepend /api/v10 so the proxy constructs the correct Discord API URL
+            # (e.g. https://discord.com/api/v10/users/@me/guilds, not https://discord.com/users/@me/guilds)
+            api_path = f"/api/v10{path}" if not path.startswith("/api") else path
             body = {
                 "method": method.upper(),
-                "path": path,
+                "path": api_path,
                 "headers": {
                     "Authorization": f"Bot {self.bot_token}"
                 }
