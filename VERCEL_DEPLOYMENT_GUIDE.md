@@ -78,9 +78,12 @@ git push -u origin main
 
 ### Step 3: Add Environment Variables
 
-In Vercel project settings:
+In Vercel project settings, add the following Environment Variables:
 - `VITE_API_URL` = `https://sidhartha2004-cyberguard.hf.space`
 - `VITE_WS_URL` = `wss://sidhartha2004-cyberguard.hf.space/ws`
+- `DISCORD_CLIENT_ID` = Your Discord App Client ID
+- `DISCORD_CLIENT_SECRET` = Your Discord App Client Secret
+- `DISCORD_PROXY_SECRET` = A random secret string (e.g. `my-random-secret-123`)
 
 ### Step 4: Deploy
 

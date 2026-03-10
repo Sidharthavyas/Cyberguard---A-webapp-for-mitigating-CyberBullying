@@ -10,8 +10,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const FRONTEND_URL = process.env.VITE_FRONTEND_URL || 'https://cyberguard-a-webapp-for-mitigating.vercel.app';
     const BACKEND_URL = process.env.VITE_API_URL || 'https://sidhartha2004-cyberguard.hf.space';
 
+    const redirectWithError = (code: string) => {
+        const url = new URL(`${FRONTEND_URL}/callback`);
+        url.searchParams.set('platform', 'discord');
+        url.searchParams.set('error', code);
+        return res.redirect(url.toString());
+    };
+
     if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
-        return res.redirect(`${FRONTEND_URL}?error=discord_not_configured`);
+        return redirectWithError('discord_not_configured');
     }
 
     const { code, state, error } = req.query;
@@ -19,12 +26,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Handle Discord error
     if (error) {
         console.error('Discord OAuth error:', error);
-        return res.redirect(`${FRONTEND_URL}?error=${error}`);
+        return redirectWithError(String(error));
     }
 
     // Validate code and state
     if (!code || !state) {
-        return res.redirect(`${FRONTEND_URL}?error=missing_code_or_state`);
+        return redirectWithError('missing_code_or_state');
     }
 
     // Verify state from cookie
@@ -34,7 +41,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (state !== storedState) {
         console.error('State mismatch:', { received: state, stored: storedState });
-        return res.redirect(`${FRONTEND_URL}?error=state_mismatch`);
+        return redirectWithError('state_mismatch');
     }
 
     try {
@@ -61,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!tokenResponse.ok) {
             const errorData = await tokenResponse.text();
             console.error('Token exchange failed:', errorData);
-            return res.redirect(`${FRONTEND_URL}?error=token_exchange_failed`);
+            return redirectWithError('token_exchange_failed');
         }
 
         const tokenData = await tokenResponse.json();
@@ -76,7 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!userResponse.ok) {
             console.error('Failed to get user info');
-            return res.redirect(`${FRONTEND_URL}?error=user_info_failed`);
+            return redirectWithError('user_info_failed');
         }
 
         const userInfo = await userResponse.json();
@@ -116,6 +123,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     } catch (err) {
         console.error('Discord callback error:', err);
-        return res.redirect(`${FRONTEND_URL}?error=discord_auth_failed`);
+        return redirectWithError('discord_auth_failed');
     }
 }

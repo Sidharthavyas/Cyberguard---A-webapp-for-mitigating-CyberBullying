@@ -98,6 +98,8 @@ Before pushing, prepare your environment variables:
 | `REDIS_URL` | `rediss://default:xxxxx@your-redis.upstash.io:6379` |
 | `FRONTEND_URL` | `https://your-frontend.vercel.app` (update after Vercel deployment) |
 | `BACKEND_URL` | `https://your-username-cyberguard.hf.space` |
+| `DISCORD_PROXY_URL` | `https://your-frontend.vercel.app/api/discord/proxy` (Req. for HF Spaces) |
+| `DISCORD_PROXY_SECRET` | Secret string matching Vercel's `DISCORD_PROXY_SECRET` |
 
 ⚠️ **Important:** Copy exact values from your `backend/.env` file!
 
